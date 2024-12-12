@@ -1,0 +1,2 @@
+
+使用 viper 库读取example.toml配置,并根据配置文件映射到go结构

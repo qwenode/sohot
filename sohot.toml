@@ -1,0 +1,18 @@
+
+[log]
+level = -1
+
+# 监控配置
+[watch]
+#监控文件夹
+include=["."]
+#.git .idea 系统默认忽略
+exclude=["tmp/"]
+
+[build]
+#延迟,毫秒
+delay=1000
+name="./tmp/test.exe"
+package="main.go"
+args=[]
+

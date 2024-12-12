@@ -1,0 +1,54 @@
+package e
+
+import (
+    "github.com/rs/zerolog/log"
+    "github.com/spf13/viper"
+    "strings"
+)
+
+var (
+    V = Configure{}
+    
+)
+
+type (
+    Configure struct {
+        Log   Log   `mapstructure:"log"`
+        Watch Watch `mapstructure:"watch"`
+        Build Build `mapstructure:"build"`
+    }
+    Build struct {
+        Delay int `mapstructure:"delay"`
+        Name string `mapstructure:"name"`
+        Package string `mapstructure:"package"`
+        Args []string `mapstructure:"args"`
+    }
+    Watch struct {
+        Include []string `mapstructure:"include"`
+        Exclude []string `mapstructure:"exclude"`
+    }
+    Log struct {
+        Level int `mapstructure:"level"`
+        
+    }
+)
+
+func init() {
+    viper.SetConfigType("toml")
+    viper.SetConfigName("sohot")
+    viper.AddConfigPath(".")
+    err := viper.ReadInConfig()
+    if err != nil {
+        log.Fatal().Err(err).Msg("配置文件错误")
+    }
+    viper.Unmarshal(&V)
+    for i, s := range V.Watch.Exclude {
+        V.Watch.Exclude[i] = strings.ToLower(s)
+    }
+    V.Watch.Exclude = append(V.Watch.Exclude, ".idea")
+    V.Watch.Exclude = append(V.Watch.Exclude, ".git")
+    V.Watch.Exclude = append(V.Watch.Exclude, ".exe")
+    if V.Build.Delay <= 0 {
+        V.Build.Delay = 500
+    }
+}

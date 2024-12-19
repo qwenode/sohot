@@ -64,6 +64,7 @@ func Building(input e.Run) {
         for {
             select {
             case <-change:
+                log.Info().Msg("重启")
                 consume(change)
                 time.Sleep(time.Second*1)
                 if isFirstRun {
@@ -88,6 +89,7 @@ func Building(input e.Run) {
     for {
         select {
         case <-change:
+            log.Info().Msg("重启...")
             time.Sleep(time.Second)
             consume(change)
             if cmd == nil {
@@ -165,7 +167,7 @@ func Watching(input e.Run) {
                 if stat.IsDir() {
                     continue
                 }
-                log.Info().Str("事件", event.Name).Send()
+                // log.Info().Str("事件", event.Name).Send()
                 change <- true
             case err2 := <-watcher.Errors:
                 log.Err(err2).Msg("监控失败")

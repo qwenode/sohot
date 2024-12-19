@@ -18,7 +18,6 @@ func main() {
 		if run.Only {
 			s+="#仅运行"
 		}
-		
 		items = append(items, s)
 	}
     sort.Strings(items)

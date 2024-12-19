@@ -16,7 +16,7 @@ import (
 var (
     change      = make(chan bool, 1000)
     stopRunning = make(chan bool)
-    isFirstRun = true
+    isFirstRun  = true
 )
 
 func consume(ch chan bool) {
@@ -28,8 +28,10 @@ func consume(ch chan bool) {
         }
     }
 }
-func Running() {
-    cmd := exec.Command(e.V.Build.Name)
+
+func Running(input e.Run) {
+    cmd := exec.Command(e.V.Build.Name, input.Command...)
+    log.Info().Strs("Run", input.Command).Msg("运行参数")
     pipe, err := cmd.StderrPipe()
     if err != nil {
         log.Err(err).Send()
@@ -49,7 +51,7 @@ func Running() {
     go io.Copy(os.Stderr, pipe)
     go func() {
         <-stopRunning
-        if cmd!=nil && cmd.Process != nil {
+        if cmd != nil && cmd.Process != nil {
             log.Info().Msg("停止运行")
             cmd.Process.Kill()
             cmd.Process.Release()
@@ -57,18 +59,36 @@ func Running() {
     }()
     log.Info().Msg("程序启动")
 }
-func Building() {
+func Building(input e.Run) {
+    if input.Only {
+        for {
+            select {
+            case <-change:
+                consume(change)
+                time.Sleep(time.Second*1)
+                if isFirstRun {
+                    isFirstRun = false
+                } else {
+                    stopRunning <- true
+                }
+                Running(input)
+            default:
+                time.Sleep(time.Second)
+            }
+        }
+        return
+    }
     commands := []string{
         "build",
     }
-    commands = append(commands, e.V.Build.Args...)
+    commands = append(commands, e.V.Build.Command...)
     commands = append(commands, "-o", e.V.Build.Name, e.V.Build.Package)
     var cmd *exec.Cmd
     
     for {
         select {
-        case <-change: 
-            time.Sleep(time.Millisecond * time.Duration(e.V.Build.Delay))
+        case <-change:
+            time.Sleep(time.Second)
             consume(change)
             if cmd == nil {
                 cmd = exec.Command("go", commands...)
@@ -89,44 +109,43 @@ func Building() {
         
         default:
             if cmd != nil {
-                if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-                    cmd = nil
-                    log.Info().Msg("编译成功")
+                err := cmd.Wait()
+                if err != nil {
+                    log.Err(err).Msg("编译错误")
                 } else {
-                    err := cmd.Wait()
-                    if err != nil {
-                        log.Err(err).Msg("编译错误")
+                    log.Info().Msg("编译完成")
+                    if isFirstRun {
+                        isFirstRun = false
                     } else {
-                        log.Info().Msg("编译完成")
-                        if isFirstRun {
-                            isFirstRun=false
-                        }else{
-                            stopRunning <- true
-                        }
-                        Running()
-                    } 
-                    cmd = nil
+                        stopRunning <- true
+                    }
+                    Running(input)
                 }
+                cmd = nil
             }
             time.Sleep(time.Second)
         }
     }
 }
-func Watching() {
+func Watching(input e.Run) {
     watchDirs := map[string]bool{}
-    for _, s := range e.V.Watch.Include {
-        filepath.WalkDir(
-            s, func(path string, d fs.DirEntry, err error) error {
-                if !d.IsDir() {
+    if input.Only {
+        watchDirs[filepath.Dir(e.V.Build.Name)] = true
+    } else {
+        for _, s := range e.V.Watch.Include {
+            filepath.WalkDir(
+                s, func(path string, d fs.DirEntry, err error) error {
+                    if !d.IsDir() {
+                        return nil
+                    }
+                    if isExclude(path) {
+                        return nil
+                    }
+                    watchDirs[path] = true
                     return nil
-                }
-                if isExclude(path) {
-                    return nil
-                }
-                watchDirs[path] = true
-                return nil
-            },
-        )
+                },
+            )
+        }
     }
     watcher, err := fsnotify.NewWatcher()
     if err != nil {
@@ -136,7 +155,7 @@ func Watching() {
         for {
             select {
             case event := <-watcher.Events:
-                if isExclude(event.Name) {
+                if !input.Only && isExclude(event.Name) {
                     continue
                 }
                 stat, err := os.Stat(event.Name)
@@ -156,6 +175,8 @@ func Watching() {
     for s := range watchDirs {
         watcher.Add(s)
     }
+    // 20241218 先触发一个 by Node
+    change <- true
 }
 func isExclude(path string) bool {
     path = strings.ReplaceAll(strings.ToLower(path), "\\", "/")

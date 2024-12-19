@@ -14,5 +14,11 @@ exclude=["tmp/"]
 delay=1000
 name="./tmp/test.exe"
 package="main.go"
-args=[]
+command=[]
 
+[run.a]
+command = ["aa"]
+
+[run.b]
+only=true
+command = ["bb"]

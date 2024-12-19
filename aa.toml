@@ -1,0 +1,17 @@
+[build]
+args = []
+delay = 2121212.0
+name = './tmp/test.exe'
+package = 'main.go'
+run = []
+
+[build.test]
+[build.test.abc]
+include = ['www']
+
+[log]
+level = -1.0
+
+[watch]
+exclude = ['tmp/', '.idea', '.git', '.exe']
+include = ['.']

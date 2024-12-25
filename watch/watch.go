@@ -15,7 +15,7 @@ import (
 
 var (
     change      = make(chan bool, 1000)
-    stopRunning = make(chan bool)
+    stopRunning = make(chan bool,10)
     isFirstRun  = true
 )
 
@@ -30,6 +30,7 @@ func consume(ch chan bool) {
 }
 
 func Running(input e.Run) {
+    consume(stopRunning)
     cmd := exec.Command(e.V.Build.Name, input.Command...)
     log.Info().Strs("Run", input.Command).Msg("运行参数")
     pipe, err := cmd.StderrPipe()

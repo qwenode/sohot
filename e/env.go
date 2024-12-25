@@ -1,8 +1,10 @@
 package e
 
 import (
+    "github.com/rs/zerolog"
     "github.com/rs/zerolog/log"
     "github.com/spf13/viper"
+    "os"
     "strings"
 )
 
@@ -19,7 +21,7 @@ type (
     }
     Run struct {
         Command []string `mapstructure:"command"`
-        Only bool `mapstructure:"only"`
+        Only    bool     `mapstructure:"only"`
     }
     Build struct {
         Delay   int      `mapstructure:"delay"`
@@ -37,6 +39,7 @@ type (
 )
 
 func init() {
+    log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, NoColor: false, TimeFormat: "2006-01-02T15:04:05Z"})
     viper.SetConfigType("toml")
     viper.SetConfigName("sohot")
     viper.AddConfigPath(".")

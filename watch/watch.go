@@ -87,13 +87,108 @@ func Building(input e.Run) {
     commands = append(commands, "-o", e.V.Build.Name, e.V.Build.Package)
     var cmd *exec.Cmd
     
+    // 用于延迟编译的计时器
+    var delayTimer *time.Timer
+    var delayActive bool
+    var countdownTicker *time.Ticker
+    var countdownDone chan bool
+    
+    // 打印倒计时的函数
+    printCountdown := func(remainingSeconds int) {
+        if remainingSeconds < 0 {
+            remainingSeconds = 0
+        }
+        log.Info().Int("剩余秒数", remainingSeconds).Msg("编译倒计时")
+    }
+    
+    // 停止倒计时的函数
+    stopCountdown := func() {
+        if countdownTicker != nil {
+            countdownTicker.Stop()
+            countdownTicker = nil
+            
+            // 通知倒计时goroutine退出
+            if countdownDone != nil {
+                close(countdownDone)
+                countdownDone = nil
+            }
+        }
+    }
+    
+    // 启动倒计时的函数
+    startCountdown := func(delayMs int) {
+        // 先停止之前的倒计时
+        stopCountdown()
+        
+        // 计算总秒数
+        totalSeconds := delayMs / 1000
+        if delayMs%1000 > 0 {
+            totalSeconds++
+        }
+        
+        // 首次立即显示倒计时
+        printCountdown(totalSeconds)
+        
+        // 如果延迟时间太短，不启动ticker
+        if totalSeconds <= 1 {
+            return
+        }
+        
+        // 创建新的倒计时通道和ticker
+        countdownDone = make(chan bool)
+        countdownTicker = time.NewTicker(time.Second)
+        
+        // 在goroutine中处理倒计时
+        go func() {
+            secondsLeft := totalSeconds - 1
+            
+            for {
+                select {
+                case <-countdownTicker.C:
+                    if secondsLeft <= 0 {
+                        stopCountdown()
+                        return
+                    }
+                    printCountdown(secondsLeft)
+                    secondsLeft--
+                case <-countdownDone:
+                    return
+                }
+            }
+        }()
+    }
+    
     for {
         select {
         case <-change:
-            log.Info().Msg("重启...")
-            time.Sleep(time.Second)
-            consume(change)
-            if cmd == nil {
+            // 收到文件变更通知
+            log.Info().Msg("检测到文件变更...")
+            
+            // 如果已经有一个延迟计时器在运行，停止它并重新计算延迟
+            if delayTimer != nil {
+                delayTimer.Stop()
+                log.Info().Msg("重置延迟计时器")
+            }
+            
+            // 停止当前的倒计时
+            stopCountdown()
+            
+            // 设置新的延迟计时器
+            delayActive = true
+            delayTimer = time.AfterFunc(time.Duration(e.V.Build.Delay)*time.Millisecond, func() {
+                // 延迟到期后执行编译
+                delayActive = false
+                stopCountdown()
+                
+                // 如果有正在运行的编译进程，先终止它
+                if cmd != nil {
+                    log.Info().Msg("终止当前编译")
+                    cmd.Process.Kill()
+                    cmd.Process.Release()
+                    cmd = nil
+                }
+                
+                // 启动新的编译
                 cmd = exec.Command("go", commands...)
                 cmd.Stdout = os.Stdout
                 cmd.Stderr = os.Stderr
@@ -103,15 +198,17 @@ func Building(input e.Run) {
                 } else {
                     log.Info().Msg("启动编译")
                 }
-            } else {
-                log.Info().Msg("终止编译")
-                cmd.Process.Kill()
-                cmd.Process.Release()
-                cmd = nil
-            }
-        
+            })
+            
+            // 启动倒计时显示
+            startCountdown(e.V.Build.Delay)
+            
+            // 清空所有待处理的变更通知
+            consume(change)
+            
         default:
-            if cmd != nil {
+            // 如果没有活跃的延迟计时器，并且有编译进程在运行，检查其状态
+            if !delayActive && cmd != nil {
                 err := cmd.Wait()
                 if err != nil {
                     log.Err(err).Msg("编译错误")

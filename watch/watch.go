@@ -181,7 +181,7 @@ func Building(input e.Run) {
                 stopCountdown()
 
                 // 如果有正在运行的编译进程，先终止它
-                if cmd != nil {
+                if cmd != nil && cmd.Process != nil {
                     log.Info().Msg("终止当前编译")
                     cmd.Process.Kill()
                     cmd.Process.Release()

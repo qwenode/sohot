@@ -5,6 +5,7 @@ import (
     "io/fs"
     "os"
     "os/exec"
+    "os/signal"
     "path/filepath"
     "runtime"
     "sohot/e"
@@ -23,20 +24,23 @@ var (
     isFirstRun  = true
 )
 
-// Windows API 常量
-const (
-    MOVEFILE_DELAY_UNTIL_REBOOT = 0x4
-)
+// 清理临时文件的函数
+func cleanupTempFiles() {
+    // 清理当前目录下的临时文件
+    matches, err := filepath.Glob("*.delete_me_*")
+    if err != nil {
+        log.Warn().Err(err).Msg("搜索临时文件失败")
+        return
+    }
 
-// Windows API 函数声明
-var (
-    kernel32                  = syscall.NewLazyDLL("kernel32.dll")
-    procMoveFileEx            = kernel32.NewProc("MoveFileExW")
-    procGetCurrentProcess     = kernel32.NewProc("GetCurrentProcess")
-    procOpenProcessToken      = kernel32.NewProc("OpenProcessToken")
-    procLookupPrivilegeValue  = kernel32.NewProc("LookupPrivilegeValueW")
-    procAdjustTokenPrivileges = kernel32.NewProc("AdjustTokenPrivileges")
-)
+    for _, tempFile := range matches {
+        if err := os.Remove(tempFile); err == nil {
+            log.Info().Str("文件", tempFile).Msg("清理临时文件成功")
+        } else {
+            log.Warn().Str("文件", tempFile).Err(err).Msg("清理临时文件失败")
+        }
+    }
+}
 
 // 强制删除文件的函数
 func forceDeleteFile(filePath string) error {
@@ -52,13 +56,29 @@ func forceDeleteFile(filePath string) error {
 
     log.Warn().Str("文件", filePath).Msg("普通删除失败，尝试Windows特殊方法")
 
-    // 方法4: 重命名文件然后标记为重启时删除
+    // 方法4: 重命名文件然后尝试删除
     tempName := filePath + ".delete_me_" + time.Now().Format("20060102150405")
     if err := os.Rename(filePath, tempName); err == nil {
         log.Info().Str("原文件", filePath).Str("临时文件", tempName).Msg("重命名成功")
 
-        // 如果标记失败，尝试删除临时文件
-        os.Remove(tempName)
+        // 立即尝试删除临时文件
+        if err := os.Remove(tempName); err == nil {
+            log.Info().Str("临时文件", tempName).Msg("临时文件删除成功")
+            return nil
+        } else {
+            log.Warn().Str("临时文件", tempName).Err(err).Msg("临时文件删除失败")
+            // 在后台继续尝试删除
+            go func() {
+                for i := 0; i < 10; i++ {
+                    time.Sleep(time.Millisecond * 500)
+                    if err := os.Remove(tempName); err == nil {
+                        log.Info().Str("临时文件", tempName).Msg("后台删除临时文件成功")
+                        return
+                    }
+                }
+                log.Warn().Str("临时文件", tempName).Msg("后台删除临时文件最终失败")
+            }()
+        }
     }
 
     // 方法2: 使用 taskkill 强制结束可能占用文件的进程
@@ -81,19 +101,6 @@ func forceDeleteFile(filePath string) error {
             log.Info().Str("文件", filePath).Msg("PowerShell删除成功")
             return nil
         }
-    }
-
-    // 方法6: 最后的尝试 - 移动到临时目录
-    tempDir := os.TempDir()
-    tempFile := filepath.Join(tempDir, "delete_"+filepath.Base(filePath)+"_"+time.Now().Format("20060102150405"))
-    if err := os.Rename(filePath, tempFile); err == nil {
-        log.Info().Str("文件", filePath).Str("临时位置", tempFile).Msg("移动到临时目录成功")
-        // 在后台尝试删除
-        go func() {
-            time.Sleep(time.Second * 5)
-            os.Remove(tempFile)
-        }()
-        return nil
     }
 
     return os.Remove(filePath) // 最后还是返回原始错误
@@ -150,9 +157,17 @@ func Building(input e.Run) {
         for {
             select {
             case <-change:
-                log.Info().Msg("重启")
+                log.Info().Msg("检测到重启信号")
                 consume(change)
                 time.Sleep(time.Second * 1)
+
+                // 检查可执行文件是否存在
+                if _, err := os.Stat(e.V.Build.Name); os.IsNotExist(err) {
+                    log.Warn().Str("文件", e.V.Build.Name).Msg("可执行文件不存在，延后重启等待编译完成")
+                    continue // 跳过本次重启，继续等待
+                }
+
+                log.Info().Str("文件", e.V.Build.Name).Msg("可执行文件存在，执行重启")
                 if isFirstRun {
                     isFirstRun = false
                 } else {
@@ -328,13 +343,19 @@ func Building(input e.Run) {
                     log.Err(err).Msg("编译错误")
                 } else {
                     log.Info().Msg("编译完成")
-                    if isFirstRun {
-                        isFirstRun = false
+                    // 检查可执行文件是否存在
+                    if _, err := os.Stat(e.V.Build.Name); os.IsNotExist(err) {
+                        log.Warn().Str("文件", e.V.Build.Name).Msg("可执行文件不存在，等待编译成功")
                     } else {
-                        stopRunning <- true
-                        time.Sleep(time.Millisecond * 100) // 给旧进程一点时间完全退出
+                        log.Info().Str("文件", e.V.Build.Name).Msg("可执行文件存在，准备重启")
+                        if isFirstRun {
+                            isFirstRun = false
+                        } else {
+                            stopRunning <- true
+                            time.Sleep(time.Millisecond * 100) // 给旧进程一点时间完全退出
+                        }
+                        Running(input)
                     }
-                    Running(input)
                 }
                 cmd = nil
             }
@@ -343,6 +364,19 @@ func Building(input e.Run) {
     }
 }
 func Watching(input e.Run) {
+    // 启动时清理临时文件
+    cleanupTempFiles()
+
+    // 设置信号处理，程序退出时清理临时文件
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+    go func() {
+        <-c
+        log.Info().Msg("收到退出信号，清理临时文件...")
+        cleanupTempFiles()
+        os.Exit(0)
+    }()
+
     watchDirs := map[string]bool{}
     if input.Only {
         watchDirs[filepath.Dir(e.V.Build.Name)] = true

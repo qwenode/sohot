@@ -7,7 +7,6 @@ import (
     "os/exec"
     "os/signal"
     "path/filepath"
-    "runtime"
     "sohot/e"
     "strings"
     "sync"
@@ -44,41 +43,15 @@ func cleanupTempFiles() {
 
 // 强制删除文件的函数
 func forceDeleteFile(filePath string) error {
-    // 方法1: 尝试普通删除
-    if err := os.Remove(filePath); err == nil {
-        log.Info().Str("文件", filePath).Msg("普通删除成功")
-        return nil
+    dir := filepath.Dir(filePath)
+    matches, _ := filepath.Glob(filepath.Join(dir, "*.delete_me_*"))
+    for _, tempFile := range matches {
+        os.Remove(tempFile)
     }
-
-    if runtime.GOOS != "windows" {
-        return os.Remove(filePath)
-    }
-
-    log.Warn().Str("文件", filePath).Msg("普通删除失败，尝试Windows特殊方法")
-
     // 方法4: 重命名文件然后尝试删除
     tempName := filePath + ".delete_me_" + time.Now().Format("20060102150405")
     if err := os.Rename(filePath, tempName); err == nil {
-        log.Info().Str("原文件", filePath).Str("临时文件", tempName).Msg("重命名成功")
-
-        // 立即尝试删除临时文件
-        if err := os.Remove(tempName); err == nil {
-            log.Info().Str("临时文件", tempName).Msg("临时文件删除成功")
-            return nil
-        } else {
-            log.Warn().Str("临时文件", tempName).Err(err).Msg("临时文件删除失败")
-            // 在后台继续尝试删除
-            go func() {
-                for i := 0; i < 10; i++ {
-                    time.Sleep(time.Millisecond * 500)
-                    if err := os.Remove(tempName); err == nil {
-                        log.Info().Str("临时文件", tempName).Msg("后台删除临时文件成功")
-                        return
-                    }
-                }
-                log.Warn().Str("临时文件", tempName).Msg("后台删除临时文件最终失败")
-            }()
-        }
+        return nil
     }
 
     // 方法2: 使用 taskkill 强制结束可能占用文件的进程
@@ -141,10 +114,8 @@ func Running(input e.Run) {
         <-stopRunning
         if cmd != nil && cmd.Process != nil {
             log.Info().Msg("停止运行")
-            err := cmd.Process.Kill()
-            if err != nil {
-                log.Warn().Err(err).Msg("终止进程时出现警告")
-            }
+            _ = cmd.Process.Kill()
+
             // 等待进程完全退出
             cmd.Wait()
             cmd.Process.Release()

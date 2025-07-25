@@ -10,6 +10,7 @@ import (
     "path/filepath"
     "sohot/e"
     "strings"
+    "sync"
     "time"
 )
 
@@ -54,7 +55,12 @@ func Running(input e.Run) {
         <-stopRunning
         if cmd != nil && cmd.Process != nil {
             log.Info().Msg("停止运行")
-            cmd.Process.Kill()
+            err := cmd.Process.Kill()
+            if err != nil {
+                log.Warn().Err(err).Msg("终止进程时出现警告")
+            }
+            // 等待进程完全退出
+            cmd.Wait()
             cmd.Process.Release()
         }
     }()
@@ -72,6 +78,7 @@ func Building(input e.Run) {
                     isFirstRun = false
                 } else {
                     stopRunning <- true
+                    time.Sleep(time.Millisecond * 100) // 给旧进程一点时间完全退出
                 }
                 Running(input)
             default:
@@ -92,6 +99,7 @@ func Building(input e.Run) {
     var delayActive bool
     var countdownTicker *time.Ticker
     var countdownDone chan bool
+    var countdownMutex sync.Mutex
 
     // 打印倒计时的函数
     printCountdown := func(remainingSeconds int) {
@@ -103,15 +111,23 @@ func Building(input e.Run) {
 
     // 停止倒计时的函数
     stopCountdown := func() {
+        countdownMutex.Lock()
+        defer countdownMutex.Unlock()
+        
         if countdownTicker != nil {
             countdownTicker.Stop()
             countdownTicker = nil
-
-            // 通知倒计时goroutine退出
-            if countdownDone != nil {
+        }
+        
+        // 安全地关闭通道
+        if countdownDone != nil {
+            select {
+            case <-countdownDone:
+                // 通道已经关闭
+            default:
                 close(countdownDone)
-                countdownDone = nil
             }
+            countdownDone = nil
         }
     }
 
@@ -134,24 +150,33 @@ func Building(input e.Run) {
             return
         }
 
-        // 创建新的倒计时通道和ticker
+        // 在锁保护下创建新的倒计时通道和ticker
+        countdownMutex.Lock()
         countdownDone = make(chan bool)
         countdownTicker = time.NewTicker(time.Second)
+        localTicker := countdownTicker
+        localDone := countdownDone
+        countdownMutex.Unlock()
 
         // 在goroutine中处理倒计时
         go func() {
+            defer func() {
+                if r := recover(); r != nil {
+                    log.Error().Interface("panic", r).Msg("倒计时goroutine发生panic")
+                }
+            }()
+            
             secondsLeft := totalSeconds - 1
 
             for {
                 select {
-                case <-countdownTicker.C:
+                case <-localTicker.C:
                     if secondsLeft <= 0 {
-                        stopCountdown()
                         return
                     }
                     printCountdown(secondsLeft)
                     secondsLeft--
-                case <-countdownDone:
+                case <-localDone:
                     return
                 }
             }
@@ -187,9 +212,26 @@ func Building(input e.Run) {
                     cmd.Process.Release()
                     cmd = nil
                 }
-                _, err3 := os.Stat(e.V.Build.Name)
-                if !os.IsNotExist(err3) {
-                    os.Remove(e.V.Build.Name)
+                
+                // 先停止正在运行的程序，确保可执行文件不被锁定
+                stopRunning <- true
+                time.Sleep(time.Millisecond * 100) // 给进程一点时间来完全退出
+                
+                // 尝试删除旧的可执行文件，如果删除失败则重试几次
+                for i := 0; i < 5; i++ {
+                    _, err3 := os.Stat(e.V.Build.Name)
+                    if os.IsNotExist(err3) {
+                        break // 文件不存在，无需删除
+                    }
+                    
+                    err3 = os.Remove(e.V.Build.Name)
+                    if err3 == nil {
+                        log.Info().Msg("成功删除旧的可执行文件")
+                        break // 删除成功
+                    }
+                    
+                    log.Warn().Err(err3).Int("重试次数", i+1).Msg("删除可执行文件失败，正在重试")
+                    time.Sleep(time.Millisecond * 200) // 等待一段时间后重试
                 }
                 // 启动新的编译
                 cmd = exec.Command("go", commands...)
@@ -221,6 +263,7 @@ func Building(input e.Run) {
                         isFirstRun = false
                     } else {
                         stopRunning <- true
+                        time.Sleep(time.Millisecond * 100) // 给旧进程一点时间完全退出
                     }
                     Running(input)
                 }

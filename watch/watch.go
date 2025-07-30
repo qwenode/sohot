@@ -1,6 +1,7 @@
 package watch
 
 import (
+    "context"
     "io"
     "io/fs"
     "os"
@@ -161,9 +162,7 @@ func Building(input e.Run) {
 
     // 用于延迟编译的计时器
     var delayTimer *time.Timer
-    var delayActive bool
-    var countdownTicker *time.Ticker
-    var countdownDone chan bool
+    var countdownCancel context.CancelFunc
     var countdownMutex sync.Mutex
 
     // 打印倒计时的函数
@@ -177,23 +176,11 @@ func Building(input e.Run) {
     // 停止倒计时的函数
     stopCountdown := func() {
         countdownMutex.Lock()
-        defer countdownMutex.Unlock()
-
-        if countdownTicker != nil {
-            countdownTicker.Stop()
-            countdownTicker = nil
+        if countdownCancel != nil {
+            countdownCancel()
+            countdownCancel = nil
         }
-
-        // 安全地关闭通道
-        if countdownDone != nil {
-            select {
-            case <-countdownDone:
-                // 通道已经关闭
-            default:
-                close(countdownDone)
-            }
-            countdownDone = nil
-        }
+        countdownMutex.Unlock()
     }
 
     // 启动倒计时的函数
@@ -215,12 +202,10 @@ func Building(input e.Run) {
             return
         }
 
-        // 在锁保护下创建新的倒计时通道和ticker
+        // 创建新的context用于取消倒计时
         countdownMutex.Lock()
-        countdownDone = make(chan bool)
-        countdownTicker = time.NewTicker(time.Second)
-        localTicker := countdownTicker
-        localDone := countdownDone
+        ctx, cancel := context.WithCancel(context.Background())
+        countdownCancel = cancel
         countdownMutex.Unlock()
 
         // 在goroutine中处理倒计时
@@ -231,17 +216,20 @@ func Building(input e.Run) {
                 }
             }()
 
+            ticker := time.NewTicker(time.Second)
+            defer ticker.Stop()
+
             secondsLeft := totalSeconds - 1
 
             for {
                 select {
-                case <-localTicker.C:
+                case <-ticker.C:
                     if secondsLeft <= 0 {
                         return
                     }
                     printCountdown(secondsLeft)
                     secondsLeft--
-                case <-localDone:
+                case <-ctx.Done():
                     return
                 }
             }
@@ -264,10 +252,9 @@ func Building(input e.Run) {
             stopCountdown()
 
             // 设置新的延迟计时器
-            delayActive = true
             delayTimer = time.AfterFunc(time.Duration(e.V.Build.Delay)*time.Millisecond, func() {
                 // 延迟到期后执行编译
-                delayActive = false
+                log.Info().Msg("延迟计时器到期，开始编译")
                 stopCountdown()
 
                 // 如果有正在运行的编译进程，先终止它
@@ -275,7 +262,6 @@ func Building(input e.Run) {
                     log.Info().Msg("终止当前编译")
                     cmd.Process.Kill()
                     cmd.Process.Release()
-                    cmd = nil
                 }
 
                 // 先停止正在运行的程序，确保可执行文件不被锁定
@@ -288,16 +274,55 @@ func Building(input e.Run) {
                         log.Warn().Err(err3).Str("文件", e.V.Build.Name).Msg("强制删除文件失败")
                     }
                 }
+
                 // 启动新的编译
+                log.Info().Strs("编译命令", append([]string{"go"}, commands...)).Msg("准备执行编译命令")
                 cmd = exec.Command("go", commands...)
                 cmd.Stdout = os.Stdout
                 cmd.Stderr = os.Stderr
                 err := cmd.Start()
                 if err != nil {
                     log.Err(err).Msg("编译启动失败")
-                } else {
-                    log.Info().Msg("启动编译")
+                    cmd = nil
+                    return
                 }
+
+                log.Info().Msg("启动编译")
+
+                // 在新的 goroutine 中等待编译完成
+                go func() {
+                    defer func() {
+                        if r := recover(); r != nil {
+                            log.Error().Interface("panic", r).Msg("编译等待goroutine发生panic")
+                        }
+                    }()
+
+                    err := cmd.Wait()
+                    if err != nil {
+                        log.Err(err).Msg("编译错误")
+                        cmd = nil
+                        return
+                    }
+
+                    log.Info().Msg("编译完成")
+
+                    // 检查可执行文件是否存在
+                    if _, err := os.Stat(e.V.Build.Name); os.IsNotExist(err) {
+                        log.Warn().Str("文件", e.V.Build.Name).Msg("可执行文件不存在，等待编译成功")
+                        cmd = nil
+                        return
+                    }
+
+                    log.Info().Str("文件", e.V.Build.Name).Msg("可执行文件存在，准备重启")
+                    if isFirstRun {
+                        isFirstRun = false
+                    } else {
+                        stopRunning <- true
+                        time.Sleep(time.Millisecond * 100) // 给旧进程一点时间完全退出
+                    }
+                    Running(input)
+                    cmd = nil
+                }()
             })
 
             // 启动倒计时显示
@@ -307,29 +332,6 @@ func Building(input e.Run) {
             consume(change)
 
         default:
-            // 如果没有活跃的延迟计时器，并且有编译进程在运行，检查其状态
-            if !delayActive && cmd != nil {
-                err := cmd.Wait()
-                if err != nil {
-                    log.Err(err).Msg("编译错误")
-                } else {
-                    log.Info().Msg("编译完成")
-                    // 检查可执行文件是否存在
-                    if _, err := os.Stat(e.V.Build.Name); os.IsNotExist(err) {
-                        log.Warn().Str("文件", e.V.Build.Name).Msg("可执行文件不存在，等待编译成功")
-                    } else {
-                        log.Info().Str("文件", e.V.Build.Name).Msg("可执行文件存在，准备重启")
-                        if isFirstRun {
-                            isFirstRun = false
-                        } else {
-                            stopRunning <- true
-                            time.Sleep(time.Millisecond * 100) // 给旧进程一点时间完全退出
-                        }
-                        Running(input)
-                    }
-                }
-                cmd = nil
-            }
             time.Sleep(time.Second)
         }
     }

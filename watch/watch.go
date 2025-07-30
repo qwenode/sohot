@@ -264,20 +264,29 @@ func Building(input e.Run) {
                     cmd.Process.Release()
                 }
 
-                // 先停止正在运行的程序，确保可执行文件不被锁定
-                stopRunning <- true
-                time.Sleep(time.Millisecond * 100) // 给进程一点时间来完全退出
-
-                // 使用强制删除方法删除旧的可执行文件
-                if _, err3 := os.Stat(e.V.Build.Name); !os.IsNotExist(err3) {
-                    if err3 := forceDeleteFile(e.V.Build.Name); err3 != nil {
-                        log.Warn().Err(err3).Str("文件", e.V.Build.Name).Msg("强制删除文件失败")
-                    }
+                // 生成临时可执行文件名，避免影响正在运行的程序
+                tempExecName := e.V.Build.Name + ".tmp_" + time.Now().Format("20060102150405")
+                
+                // 清理之前可能存在的临时文件
+                matches, _ := filepath.Glob(e.V.Build.Name + ".tmp_*")
+                for _, tempFile := range matches {
+                    os.Remove(tempFile)
                 }
 
+                // 修改编译命令，先编译到临时文件
+                tempCommands := make([]string, len(commands))
+                copy(tempCommands, commands)
+                // 找到 -o 参数的位置并替换为临时文件名
+                for i, arg := range tempCommands {
+                    if arg == "-o" && i+1 < len(tempCommands) {
+                        tempCommands[i+1] = tempExecName
+                        break
+                    }
+                }
+                
                 // 启动新的编译
-                log.Info().Strs("编译命令", append([]string{"go"}, commands...)).Msg("准备执行编译命令")
-                cmd = exec.Command("go", commands...)
+                log.Info().Strs("编译命令", append([]string{"go"}, tempCommands...)).Msg("准备执行编译命令")
+                cmd = exec.Command("go", tempCommands...)
                 cmd.Stdout = os.Stdout
                 cmd.Stderr = os.Stderr
                 err := cmd.Start()
@@ -306,20 +315,44 @@ func Building(input e.Run) {
 
                     log.Info().Msg("编译完成")
 
-                    // 检查可执行文件是否存在
-                    if _, err := os.Stat(e.V.Build.Name); os.IsNotExist(err) {
-                        log.Warn().Str("文件", e.V.Build.Name).Msg("可执行文件不存在，等待编译成功")
+                    // 检查临时可执行文件是否存在
+                    if _, err := os.Stat(tempExecName); os.IsNotExist(err) {
+                        log.Warn().Str("文件", tempExecName).Msg("临时可执行文件不存在，编译可能失败")
                         cmd = nil
                         return
                     }
 
-                    log.Info().Str("文件", e.V.Build.Name).Msg("可执行文件存在，准备重启")
+                    log.Info().Str("临时文件", tempExecName).Msg("编译成功，准备替换可执行文件")
+                    
+                    // 如果不是第一次运行，先停止旧程序
+                    if !isFirstRun {
+                        log.Info().Msg("停止旧程序")
+                        stopRunning <- true
+                        time.Sleep(time.Millisecond * 200) // 给旧进程更多时间完全退出
+                    }
+                    
+                    // 删除旧的可执行文件并将临时文件重命名为正式文件
+                    if _, err := os.Stat(e.V.Build.Name); !os.IsNotExist(err) {
+                        if err := forceDeleteFile(e.V.Build.Name); err != nil {
+                            log.Warn().Err(err).Str("文件", e.V.Build.Name).Msg("删除旧可执行文件失败")
+                        }
+                    }
+                    
+                    // 将临时文件重命名为正式文件
+                    if err := os.Rename(tempExecName, e.V.Build.Name); err != nil {
+                        log.Err(err).Str("临时文件", tempExecName).Str("目标文件", e.V.Build.Name).Msg("重命名文件失败")
+                        // 清理临时文件
+                        os.Remove(tempExecName)
+                        cmd = nil
+                        return
+                    }
+                    
+                    log.Info().Str("文件", e.V.Build.Name).Msg("可执行文件更新成功，启动新程序")
+                    
                     if isFirstRun {
                         isFirstRun = false
-                    } else {
-                        stopRunning <- true
-                        time.Sleep(time.Millisecond * 100) // 给旧进程一点时间完全退出
                     }
+                    
                     Running(input)
                     cmd = nil
                 }()

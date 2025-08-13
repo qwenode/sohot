@@ -24,60 +24,37 @@ var (
     isFirstRun  = true
 )
 
-// 清理临时文件的函数
+// Function to clean up temporary files
 func cleanupTempFiles() {
-    // 清理当前目录下的临时文件
+    // Clean temporary files in current directory
     matches, err := filepath.Glob("*.delete_me_*")
     if err != nil {
-        log.Warn().Err(err).Msg("搜索临时文件失败")
+        log.Warn().Err(err).Msg("Failed to search temporary files")
         return
     }
 
     for _, tempFile := range matches {
         if err := os.Remove(tempFile); err == nil {
-            log.Info().Str("文件", tempFile).Msg("清理临时文件成功")
+            log.Info().Str("file", tempFile).Msg("Cleaned temporary file successfully")
         } else {
-            log.Warn().Str("文件", tempFile).Err(err).Msg("清理临时文件失败")
+            log.Warn().Str("file", tempFile).Err(err).Msg("Failed to clean temporary file")
         }
     }
 }
 
-// 强制删除文件的函数
+// Function to force delete files
 func forceDeleteFile(filePath string) error {
     dir := filepath.Dir(filePath)
     matches, _ := filepath.Glob(filepath.Join(dir, "*.delete_me_*"))
     for _, tempFile := range matches {
         os.Remove(tempFile)
     }
-    // 方法4: 重命名文件然后尝试删除
     tempName := filePath + ".delete_me_" + time.Now().Format("20060102150405")
     if err := os.Rename(filePath, tempName); err == nil {
         return nil
     }
 
-    // 方法2: 使用 taskkill 强制结束可能占用文件的进程
-    execName := filepath.Base(filePath)
-    cmd := exec.Command("taskkill", "/F", "/IM", execName)
-    cmd.Run() // 忽略错误，因为进程可能不存在
-    time.Sleep(time.Millisecond * 100)
-
-    // 再次尝试删除
-    if err := os.Remove(filePath); err == nil {
-        log.Info().Str("文件", filePath).Msg("taskkill后删除成功")
-        return nil
-    }
-    // 方法5: 使用 PowerShell 强制删除
-    psCmd := `Remove-Item -Path "` + filePath + `" -Force -ErrorAction SilentlyContinue`
-    cmd = exec.Command("powershell", "-Command", psCmd)
-    if err := cmd.Run(); err == nil {
-        // 检查文件是否真的被删除了
-        if _, err := os.Stat(filePath); os.IsNotExist(err) {
-            log.Info().Str("文件", filePath).Msg("PowerShell删除成功")
-            return nil
-        }
-    }
-
-    return os.Remove(filePath) // 最后还是返回原始错误
+    return os.Remove(filePath) // Finally return the original error
 }
 
 func consume(ch chan bool) {
@@ -93,7 +70,7 @@ func consume(ch chan bool) {
 func Running(input e.Run) {
     consume(stopRunning)
     cmd := exec.Command(e.V.Build.Name, input.Command...)
-    log.Info().Strs("Run", input.Command).Msg("运行参数")
+    log.Info().Strs("Run", input.Command).Msg("Run arguments")
     pipe, err := cmd.StderrPipe()
     if err != nil {
         log.Err(err).Send()
@@ -114,37 +91,37 @@ func Running(input e.Run) {
     go func() {
         <-stopRunning
         if cmd != nil && cmd.Process != nil {
-            log.Info().Msg("停止运行")
+            log.Info().Msg("Stopping execution")
             _ = cmd.Process.Kill()
 
-            // 等待进程完全退出
+            // Wait for process to completely exit
             cmd.Wait()
             cmd.Process.Release()
         }
     }()
-    log.Info().Msg("程序启动")
+    log.Info().Msg("Program started")
 }
 func Building(input e.Run) {
     if input.Only {
         for {
             select {
             case <-change:
-                log.Info().Msg("检测到重启信号")
+                log.Info().Msg("Restart signal detected")
                 consume(change)
                 time.Sleep(time.Second * 1)
 
-                // 检查可执行文件是否存在
+                // Check if executable file exists
                 if _, err := os.Stat(e.V.Build.Name); os.IsNotExist(err) {
-                    log.Warn().Str("文件", e.V.Build.Name).Msg("可执行文件不存在，延后重启等待编译完成")
-                    continue // 跳过本次重启，继续等待
+                    log.Warn().Str("file", e.V.Build.Name).Msg("Executable file not found, delaying restart to wait for compilation")
+                    continue // Skip this restart, continue waiting
                 }
 
-                log.Info().Str("文件", e.V.Build.Name).Msg("可执行文件存在，执行重启")
+                log.Info().Str("file", e.V.Build.Name).Msg("Executable file exists, performing restart")
                 if isFirstRun {
                     isFirstRun = false
                 } else {
                     stopRunning <- true
-                    time.Sleep(time.Millisecond * 100) // 给旧进程一点时间完全退出
+                    time.Sleep(time.Millisecond * 100) // Give old process some time to completely exit
                 }
                 Running(input)
             default:
@@ -160,20 +137,20 @@ func Building(input e.Run) {
     commands = append(commands, "-o", e.V.Build.Name, e.V.Build.Package)
     var cmd *exec.Cmd
 
-    // 用于延迟编译的计时器
+    // Timer for delayed compilation
     var delayTimer *time.Timer
     var countdownCancel context.CancelFunc
     var countdownMutex sync.Mutex
 
-    // 打印倒计时的函数
+    // Function to print countdown
     printCountdown := func(remainingSeconds int) {
         if remainingSeconds < 0 {
             remainingSeconds = 0
         }
-        log.Info().Int("剩余秒数", remainingSeconds).Msg("编译倒计时")
+        log.Info().Int("seconds_remaining", remainingSeconds).Msg("Compilation countdown")
     }
 
-    // 停止倒计时的函数
+    // Function to stop countdown
     stopCountdown := func() {
         countdownMutex.Lock()
         if countdownCancel != nil {
@@ -183,36 +160,36 @@ func Building(input e.Run) {
         countdownMutex.Unlock()
     }
 
-    // 启动倒计时的函数
+    // Function to start countdown
     startCountdown := func(delayMs int) {
-        // 先停止之前的倒计时
+        // First stop previous countdown
         stopCountdown()
 
-        // 计算总秒数
+        // Calculate total seconds
         totalSeconds := delayMs / 1000
         if delayMs%1000 > 0 {
             totalSeconds++
         }
 
-        // 首次立即显示倒计时
+        // Show countdown immediately for the first time
         printCountdown(totalSeconds)
 
-        // 如果延迟时间太短，不启动ticker
+        // If delay time is too short, don't start ticker
         if totalSeconds <= 1 {
             return
         }
 
-        // 创建新的context用于取消倒计时
+        // Create new context for canceling countdown
         countdownMutex.Lock()
         ctx, cancel := context.WithCancel(context.Background())
         countdownCancel = cancel
         countdownMutex.Unlock()
 
-        // 在goroutine中处理倒计时
+        // Handle countdown in goroutine
         go func() {
             defer func() {
                 if r := recover(); r != nil {
-                    log.Error().Interface("panic", r).Msg("倒计时goroutine发生panic")
+                    log.Error().Interface("panic", r).Msg("Countdown goroutine panic occurred")
                 }
             }()
 
@@ -239,129 +216,129 @@ func Building(input e.Run) {
     for {
         select {
         case <-change:
-            // 收到文件变更通知
-            log.Info().Msg("检测到文件变更...")
+            // Received file change notification
+            log.Info().Msg("File change detected...")
 
-            // 如果已经有一个延迟计时器在运行，停止它并重新计算延迟
+            // If there's already a delay timer running, stop it and recalculate delay
             if delayTimer != nil {
                 delayTimer.Stop()
-                log.Info().Msg("重置延迟计时器")
+                log.Info().Msg("Resetting delay timer")
             }
 
-            // 停止当前的倒计时
+            // Stop current countdown
             stopCountdown()
 
-            // 设置新的延迟计时器
+            // Set new delay timer
             delayTimer = time.AfterFunc(time.Duration(e.V.Build.Delay)*time.Millisecond, func() {
-                // 延迟到期后执行编译
-                log.Info().Msg("延迟计时器到期，开始编译")
+                // Execute compilation after delay expires
+                log.Info().Msg("Delay timer expired, starting compilation")
                 stopCountdown()
 
-                // 如果有正在运行的编译进程，先终止它
+                // If there's a running compilation process, terminate it first
                 if cmd != nil && cmd.Process != nil {
-                    log.Info().Msg("终止当前编译")
+                    log.Info().Msg("Terminating current compilation")
                     cmd.Process.Kill()
                     cmd.Process.Release()
                 }
 
-                // 生成临时可执行文件名，避免影响正在运行的程序
+                // Generate temporary executable filename to avoid affecting running program
                 tempExecName := e.V.Build.Name + ".tmp_" + time.Now().Format("20060102150405")
-                
-                // 清理之前可能存在的临时文件
+
+                // Clean up previously existing temporary files
                 matches, _ := filepath.Glob(e.V.Build.Name + ".tmp_*")
                 for _, tempFile := range matches {
                     os.Remove(tempFile)
                 }
 
-                // 修改编译命令，先编译到临时文件
+                // Modify compilation command to compile to temporary file first
                 tempCommands := make([]string, len(commands))
                 copy(tempCommands, commands)
-                // 找到 -o 参数的位置并替换为临时文件名
+                // Find the -o parameter position and replace with temporary filename
                 for i, arg := range tempCommands {
                     if arg == "-o" && i+1 < len(tempCommands) {
                         tempCommands[i+1] = tempExecName
                         break
                     }
                 }
-                
-                // 启动新的编译
-                log.Info().Strs("编译命令", append([]string{"go"}, tempCommands...)).Msg("准备执行编译命令")
+
+                // Start new compilation
+                log.Info().Strs("build_command", append([]string{"go"}, tempCommands...)).Msg("Preparing to execute build command")
                 cmd = exec.Command("go", tempCommands...)
                 cmd.Stdout = os.Stdout
                 cmd.Stderr = os.Stderr
                 err := cmd.Start()
                 if err != nil {
-                    log.Err(err).Msg("编译启动失败")
+                    log.Err(err).Msg("Failed to start compilation")
                     cmd = nil
                     return
                 }
 
-                log.Info().Msg("启动编译")
+                log.Info().Msg("Starting compilation")
 
-                // 在新的 goroutine 中等待编译完成
+                // Wait for compilation to complete in new goroutine
                 go func() {
                     defer func() {
                         if r := recover(); r != nil {
-                            log.Error().Interface("panic", r).Msg("编译等待goroutine发生panic")
+                            log.Error().Interface("panic", r).Msg("Compilation wait goroutine panic occurred")
                         }
                     }()
 
                     err := cmd.Wait()
                     if err != nil {
-                        log.Err(err).Msg("编译错误")
+                        log.Err(err).Msg("Compilation error")
                         cmd = nil
                         return
                     }
 
-                    log.Info().Msg("编译完成")
+                    log.Info().Msg("Compilation completed")
 
-                    // 检查临时可执行文件是否存在
+                    // Check if temporary executable file exists
                     if _, err := os.Stat(tempExecName); os.IsNotExist(err) {
-                        log.Warn().Str("文件", tempExecName).Msg("临时可执行文件不存在，编译可能失败")
+                        log.Warn().Str("file", tempExecName).Msg("Temporary executable file not found, compilation may have failed")
                         cmd = nil
                         return
                     }
 
-                    log.Info().Str("临时文件", tempExecName).Msg("编译成功，准备替换可执行文件")
-                    
-                    // 如果不是第一次运行，先停止旧程序
+                    log.Info().Str("temp_file", tempExecName).Msg("Compilation successful, preparing to replace executable file")
+
+                    // If not first run, stop old program first
                     if !isFirstRun {
-                        log.Info().Msg("停止旧程序")
+                        log.Info().Msg("Stopping old program")
                         stopRunning <- true
-                        time.Sleep(time.Millisecond * 200) // 给旧进程更多时间完全退出
+                        time.Sleep(time.Millisecond * 200) // Give old process more time to completely exit
                     }
-                    
-                    // 删除旧的可执行文件并将临时文件重命名为正式文件
+
+                    // Delete old executable file and rename temporary file to official file
                     if _, err := os.Stat(e.V.Build.Name); !os.IsNotExist(err) {
                         if err := forceDeleteFile(e.V.Build.Name); err != nil {
-                            log.Warn().Err(err).Str("文件", e.V.Build.Name).Msg("删除旧可执行文件失败")
+                            log.Warn().Err(err).Str("file", e.V.Build.Name).Msg("Failed to delete old executable file")
                         }
                     }
-                    
-                    // 将临时文件重命名为正式文件
+
+                    // Rename temporary file to official file
                     if err := os.Rename(tempExecName, e.V.Build.Name); err != nil {
-                        log.Err(err).Str("临时文件", tempExecName).Str("目标文件", e.V.Build.Name).Msg("重命名文件失败")
-                        // 清理临时文件
+                        log.Err(err).Str("temp_file", tempExecName).Str("target_file", e.V.Build.Name).Msg("Failed to rename file")
+                        // Clean up temporary file
                         os.Remove(tempExecName)
                         cmd = nil
                         return
                     }
-                    
-                    log.Info().Str("文件", e.V.Build.Name).Msg("可执行文件更新成功，启动新程序")
-                    
+
+                    log.Info().Str("file", e.V.Build.Name).Msg("Executable file updated successfully, starting new program")
+
                     if isFirstRun {
                         isFirstRun = false
                     }
-                    
+
                     Running(input)
                     cmd = nil
                 }()
             })
 
-            // 启动倒计时显示
+            // Start countdown display
             startCountdown(e.V.Build.Delay)
 
-            // 清空所有待处理的变更通知
+            // Clear all pending change notifications
             consume(change)
 
         default:
@@ -370,15 +347,15 @@ func Building(input e.Run) {
     }
 }
 func Watching(input e.Run) {
-    // 启动时清理临时文件
+    // Clean temporary files on startup
     cleanupTempFiles()
 
-    // 设置信号处理，程序退出时清理临时文件
+    // Set up signal handling to clean temporary files on program exit
     c := make(chan os.Signal, 1)
     signal.Notify(c, os.Interrupt, syscall.SIGTERM)
     go func() {
         <-c
-        log.Info().Msg("收到退出信号，清理临时文件...")
+        log.Info().Msg("Received exit signal, cleaning temporary files...")
         cleanupTempFiles()
         os.Exit(0)
     }()
@@ -420,17 +397,17 @@ func Watching(input e.Run) {
                 if stat.IsDir() {
                     continue
                 }
-                // log.Info().Str("事件", event.Name).Send()
+                // log.Info().Str("event", event.Name).Send()
                 change <- true
             case err2 := <-watcher.Errors:
-                log.Err(err2).Msg("监控失败")
+                log.Err(err2).Msg("Monitoring failed")
             }
         }
     }()
     for s := range watchDirs {
         watcher.Add(s)
     }
-    // 20241218 先触发一个 by Node
+    // 20241218 Trigger one first by Node
     change <- true
 }
 func isExclude(path string) bool {

@@ -17,12 +17,12 @@ import (
 func main() {
 	var key string
 	
-	// 检查是否提供了命令行参数
+	// Check if command line arguments are provided
 	if len(os.Args) > 1 {
 		key = os.Args[1]
 		log.Info().Str("profile", key).Msg("Using command line specified profile")
 	} else {
-		// 没有提供参数，显示交互式选择界面
+		// No arguments provided, show interactive selection interface
 		items := make([]string, 0, len(e.V.Run))
 		for s, run := range e.V.Run {
 			if run.Only {
@@ -44,7 +44,7 @@ func main() {
 		key = rr.NewS(result).GetFirst("#").String()
 	}
 	
-	// 验证配置是否存在
+	// Verify if the profile exists
 	run, ok := e.V.Run[key]
 	if !ok {
 		log.Fatal().Str("profile", key).Msg("Profile not found")

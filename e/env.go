@@ -45,7 +45,7 @@ func init() {
     viper.AddConfigPath(".")
     err := viper.ReadInConfig()
     if err != nil {
-        log.Fatal().Err(err).Msg("配置文件错误")
+        log.Fatal().Err(err).Msg("Configuration file error")
     }
     viper.Unmarshal(&V)
     for i, s := range V.Watch.Exclude {

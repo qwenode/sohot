@@ -20,19 +20,19 @@ func main() {
 	// 检查是否提供了命令行参数
 	if len(os.Args) > 1 {
 		key = os.Args[1]
-		log.Info().Str("配置", key).Msg("使用命令行指定的配置")
+		log.Info().Str("profile", key).Msg("Using command line specified profile")
 	} else {
 		// 没有提供参数，显示交互式选择界面
 		items := make([]string, 0, len(e.V.Run))
 		for s, run := range e.V.Run {
 			if run.Only {
-				s += "#仅运行"
+				s += "#Run only mode"
 			}
 			items = append(items, s)
 		}
 		sort.Strings(items)
 		prompt := promptui.Select{
-			Label: "选择配置",
+			Label: "Select profile",
 			Items: items,
 		}
 		_, result, err := prompt.Run()
@@ -47,7 +47,7 @@ func main() {
 	// 验证配置是否存在
 	run, ok := e.V.Run[key]
 	if !ok {
-		log.Fatal().Str("配置", key).Msg("配置不存在")
+		log.Fatal().Str("profile", key).Msg("Profile not found")
 	}
 	
 	watch.Watching(run)

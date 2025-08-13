@@ -25,7 +25,7 @@ _cgo_gotypes.go
 _cgo_export.*
 
 _testmain.go
-
+.kiro/
 *.exe
 /.idea/.gitignore
 /.idea/git_toolbox_blame.xml

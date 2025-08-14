@@ -45,10 +45,8 @@ archives:
       - README_CN.md
       - LICENSE
       - sohot.toml
-    rlcp: true
     format_overrides:
       - goos: windows
-        rlcp: false
 
 checksum:
   name_template: 'checksums.txt'

@@ -38,18 +38,17 @@ builds:
 
 archives:
   - id: sohot-archive
-    builds:
-      - sohot
+    builds: [sohot]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
-    format_overrides:
-      - goos: windows
-        format: zip
-    format: tar.gz
     files:
       - README.md
       - README_CN.md
       - LICENSE
       - sohot.toml
+    rlcp: true
+    format_overrides:
+      - goos: windows
+        rlcp: false
 
 checksum:
   name_template: 'checksums.txt'
@@ -108,7 +107,7 @@ changelog:
 
 # Snapshot builds for testing
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 # Metadata for the release
 metadata:

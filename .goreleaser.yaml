@@ -47,7 +47,7 @@ archives:
       - sohot.toml
     format_overrides:
       - goos: windows
-      - formats: [ 'zip' ]
+        formats: [ 'zip' ]
 
 checksum:
   name_template: 'checksums.txt'

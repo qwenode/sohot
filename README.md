@@ -1,4 +1,6 @@
-# SoHot
+# SoHot 
+
+English | [简体中文](README_CN.md)
 
 A Go-based file monitoring and hot-reload tool that automatically watches for file changes, compiles your Go applications, and restarts them during development. Similar to nodemon for Node.js, SoHot streamlines your Go development workflow by eliminating manual build and restart cycles.
 

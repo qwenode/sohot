@@ -63,8 +63,7 @@ release:
     name: "{{ .Env.GITHUB_REPOSITORY_NAME }}"
   name_template: "{{ .ProjectName }} {{ .Tag }}"
   # Use custom release notes template
-  release_notes:
-    template: .goreleaser/release-notes.tmpl
+  release_notes_template: .goreleaser/release-notes.tmpl
   draft: false
   prerelease: auto
   mode: replace

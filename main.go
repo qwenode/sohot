@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"github.com/rs/zerolog/log"
-	"rr"
 	"sohot/e"
 	"sohot/watch"
 	"sort"
@@ -41,7 +40,7 @@ func main() {
 			fmt.Printf("Prompt failed %v\n", err)
 			return
 		}
-		key = rr.NewS(result).GetFirst("#").String()
+		key = extractKey(result)
 	}
 	
 	// Verify if the profile exists

@@ -5,10 +5,10 @@ import (
 	"os"
 	"github.com/rs/zerolog/log"
 	"sohot/e"
+	"sohot/version"
 	"sohot/watch"
 	"sort"
 
-	// "sohot/watch"
 	"github.com/manifoldco/promptui"
 )
 
@@ -18,7 +18,16 @@ func main() {
 	
 	// Check if command line arguments are provided
 	if len(os.Args) > 1 {
-		key = os.Args[1]
+		arg := os.Args[1]
+		
+		// Handle version commands
+		if arg == "--version" || arg == "-v" || arg == "version" {
+			buildInfo := version.GetBuildInfo()
+			fmt.Println(buildInfo.String())
+			return
+		}
+		
+		key = arg
 		log.Info().Str("profile", key).Msg("Using command line specified profile")
 	} else {
 		// No arguments provided, show interactive selection interface
@@ -48,6 +57,10 @@ func main() {
 	if !ok {
 		log.Fatal().Str("profile", key).Msg("Profile not found")
 	}
+	
+	// Show version information at startup
+	buildInfo := version.GetBuildInfo()
+	log.Info().Str("version", buildInfo.Version).Str("commit", buildInfo.Commit).Msg("Starting SoHot")
 	
 	watch.Watching(run)
 	watch.Building(run)

@@ -38,7 +38,7 @@ builds:
 
 archives:
   - id: sohot-archive
-    builds: [sohot]
+    ids: [sohot]
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
@@ -65,9 +65,6 @@ release:
   draft: false
   prerelease: auto
   mode: replace
-  # Include additional files in the release
-  extra_files:
-    - glob: ./checksums.txt
 
 changelog:
   sort: asc

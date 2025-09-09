@@ -8,7 +8,7 @@ import (
     "os/exec"
     "os/signal"
     "path/filepath"
-    "sohot/e"
+    "github.com/qwenode/sohot/e"
     "strings"
     "sync"
     "syscall"

@@ -33,7 +33,7 @@ go build -o sohot
 ### Install Globally
 
 ```bash
-go install github.com/qwenode/sohot/cmd/sohot@latest
+go install github.com/qwenode/github.com/qwenode/sohot/cmd/sohot@latest
 ```
 
 ## Quick Start

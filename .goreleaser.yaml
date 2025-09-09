@@ -11,7 +11,7 @@ before:
 
 builds:
   - id: sohot
-    main: ./cmd/sohot/main.go
+    main: ./main.go
     binary: sohot
     goos:
       - linux
@@ -31,10 +31,10 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X sohot/version.Version={{.Version}}
-      - -X sohot/version.Commit={{.Commit}}
-      - -X sohot/version.Date={{.Date}}
-      - -X sohot/version.BuiltBy=goreleaser
+      - -X github.com/qwenode/sohot/version.Version={{.Version}}
+      - -X github.com/qwenode/sohot/version.Commit={{.Commit}}
+      - -X github.com/qwenode/sohot/version.Date={{.Date}}
+      - -X github.com/qwenode/sohot/version.BuiltBy=goreleaser
 
 archives:
   - id: sohot-archive

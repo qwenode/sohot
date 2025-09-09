@@ -3,11 +3,12 @@ package main
 import (
     "fmt"
     "os"
-    "sohot/e"
-    "sohot/version"
-    "sohot/watch"
     "sort"
     "strings"
+
+    "github.com/qwenode/sohot/e"
+    "github.com/qwenode/sohot/version"
+    "github.com/qwenode/sohot/watch"
 
     "github.com/rs/zerolog/log"
 

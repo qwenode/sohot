@@ -11,7 +11,7 @@ before:
 
 builds:
   - id: sohot
-    main: ./main.go
+    main: ./cmd/sohot/main.go
     binary: sohot
     goos:
       - linux

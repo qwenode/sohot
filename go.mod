@@ -1,4 +1,4 @@
-module sohot
+module github.com/qwenode/sohot
 
 go 1.23.1
 

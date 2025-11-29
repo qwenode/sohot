@@ -269,8 +269,8 @@ func Building(input e.Run) {
                 // Start new compilation
                 log.Info().Strs("build_command", append([]string{"go"}, tempCommands...)).Msg("Preparing to execute build command")
                 cmd = exec.Command("go", tempCommands...)
-                cmd.Stdout = os.Stdout
-                cmd.Stderr = os.Stderr
+                cmd.Stdout = e.StdoutWriter
+                cmd.Stderr = e.StderrWriter
                 err := cmd.Start()
                 if err != nil {
                     log.Err(err).Msg("Failed to start compilation")

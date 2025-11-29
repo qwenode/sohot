@@ -19,9 +19,10 @@ import (
 )
 
 var (
-    change      = make(chan bool, 1000)
-    stopRunning = make(chan bool, 10)
-    isFirstRun  = true
+    change         = make(chan bool, 1000)
+    stopRunning    = make(chan bool, 10)
+    isFirstRun     = true
+    isFirstRunLock sync.Mutex
 )
 
 // Function to clean up temporary files
@@ -88,17 +89,16 @@ func Running(input e.Run) {
     }
     go io.Copy(os.Stdout, stdoutPipe)
     go io.Copy(os.Stderr, pipe)
-    go func() {
+    // 捕获 cmd 的本地副本，避免竞态条件
+    go func(runCmd *exec.Cmd) {
         <-stopRunning
-        if cmd != nil && cmd.Process != nil {
+        if runCmd != nil && runCmd.Process != nil {
             log.Info().Msg("Stopping execution")
-            _ = cmd.Process.Kill()
-
-            // Wait for process to completely exit
-            cmd.Wait()
-            cmd.Process.Release()
+            _ = runCmd.Process.Kill()
+            runCmd.Wait()
+            runCmd.Process.Release()
         }
-    }()
+    }(cmd)
     log.Info().Msg("Program started")
 }
 func Building(input e.Run) {
@@ -117,9 +117,13 @@ func Building(input e.Run) {
                 }
 
                 log.Info().Str("file", e.V.Build.Name).Msg("Executable file exists, performing restart")
+                isFirstRunLock.Lock()
+                first := isFirstRun
                 if isFirstRun {
                     isFirstRun = false
-                } else {
+                }
+                isFirstRunLock.Unlock()
+                if !first {
                     stopRunning <- true
                     time.Sleep(time.Millisecond * 100) // Give old process some time to completely exit
                 }
@@ -276,33 +280,41 @@ func Building(input e.Run) {
                 log.Info().Msg("Starting compilation")
 
                 // Wait for compilation to complete in new goroutine
-                go func() {
+                // 捕获当前 cmd 的本地副本，避免竞态条件
+                currentCmd := cmd
+                go func(buildCmd *exec.Cmd, tempFile string) {
                     defer func() {
                         if r := recover(); r != nil {
                             log.Error().Interface("panic", r).Msg("Compilation wait goroutine panic occurred")
                         }
                     }()
 
-                    err := cmd.Wait()
+                    if buildCmd == nil {
+                        log.Warn().Msg("Build command is nil, skipping wait")
+                        return
+                    }
+
+                    err := buildCmd.Wait()
                     if err != nil {
                         log.Err(err).Msg("Compilation error")
-                        cmd = nil
                         return
                     }
 
                     log.Info().Msg("Compilation completed")
 
                     // Check if temporary executable file exists
-                    if _, err := os.Stat(tempExecName); os.IsNotExist(err) {
-                        log.Warn().Str("file", tempExecName).Msg("Temporary executable file not found, compilation may have failed")
-                        cmd = nil
+                    if _, err := os.Stat(tempFile); os.IsNotExist(err) {
+                        log.Warn().Str("file", tempFile).Msg("Temporary executable file not found, compilation may have failed")
                         return
                     }
 
-                    log.Info().Str("temp_file", tempExecName).Msg("Compilation successful, preparing to replace executable file")
+                    log.Info().Str("temp_file", tempFile).Msg("Compilation successful, preparing to replace executable file")
 
                     // If not first run, stop old program first
-                    if !isFirstRun {
+                    isFirstRunLock.Lock()
+                    first := isFirstRun
+                    isFirstRunLock.Unlock()
+                    if !first {
                         log.Info().Msg("Stopping old program")
                         stopRunning <- true
                         time.Sleep(time.Millisecond * 200) // Give old process more time to completely exit
@@ -316,23 +328,23 @@ func Building(input e.Run) {
                     }
 
                     // Rename temporary file to official file
-                    if err := os.Rename(tempExecName, e.V.Build.Name); err != nil {
-                        log.Err(err).Str("temp_file", tempExecName).Str("target_file", e.V.Build.Name).Msg("Failed to rename file")
+                    if err := os.Rename(tempFile, e.V.Build.Name); err != nil {
+                        log.Err(err).Str("temp_file", tempFile).Str("target_file", e.V.Build.Name).Msg("Failed to rename file")
                         // Clean up temporary file
-                        os.Remove(tempExecName)
-                        cmd = nil
+                        os.Remove(tempFile)
                         return
                     }
 
                     log.Info().Str("file", e.V.Build.Name).Msg("Executable file updated successfully, starting new program")
 
+                    isFirstRunLock.Lock()
                     if isFirstRun {
                         isFirstRun = false
                     }
+                    isFirstRunLock.Unlock()
 
                     Running(input)
-                    cmd = nil
-                }()
+                }(currentCmd, tempExecName)
             })
 
             // Start countdown display
@@ -367,7 +379,11 @@ func Watching(input e.Run) {
         for _, s := range e.V.Watch.Include {
             filepath.WalkDir(
                 s, func(path string, d fs.DirEntry, err error) error {
-                    if !d.IsDir() {
+                    if err != nil {
+                        log.Warn().Err(err).Str("path", path).Msg("Error walking directory")
+                        return nil
+                    }
+                    if d == nil || !d.IsDir() {
                         return nil
                     }
                     if isExclude(path) {
@@ -383,6 +399,7 @@ func Watching(input e.Run) {
     if err != nil {
         log.Fatal().Err(err).Send()
     }
+    // 注意：watcher 在程序生命周期内持续运行，由信号处理器负责退出
     go func() {
         for {
             select {

@@ -48,7 +48,9 @@ func init() {
     if err != nil {
         log.Fatal().Err(err).Msg("Configuration file error")
     }
-    viper.Unmarshal(&V)
+    if err := viper.Unmarshal(&V); err != nil {
+        log.Fatal().Err(err).Msg("Failed to parse configuration")
+    }
     for i, s := range V.Watch.Exclude {
         V.Watch.Exclude[i] = strings.ToLower(s)
     }

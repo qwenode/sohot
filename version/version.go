@@ -42,5 +42,9 @@ func (bi BuildInfo) String() string {
 
 // Short returns a short version string
 func (bi BuildInfo) Short() string {
-	return fmt.Sprintf("SoHot %s (%s)", bi.Version, bi.Commit[:8])
+	commit := bi.Commit
+	if len(commit) > 8 {
+		commit = commit[:8]
+	}
+	return fmt.Sprintf("SoHot %s (%s)", bi.Version, commit)
 }

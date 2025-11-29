@@ -1,8 +1,10 @@
 package e
 
 import (
+    "io"
     "os"
     "strings"
+    "sync"
 
     "github.com/rs/zerolog"
     "github.com/rs/zerolog/log"
@@ -11,6 +13,24 @@ import (
 
 var (
     V = Configure{}
+)
+
+// SyncWriter 是一个线程安全的 writer，用于防止并发写入时输出混乱
+type SyncWriter struct {
+    mu sync.Mutex
+    w  io.Writer
+}
+
+func (sw *SyncWriter) Write(p []byte) (n int, err error) {
+    sw.mu.Lock()
+    defer sw.mu.Unlock()
+    return sw.w.Write(p)
+}
+
+// 全局同步 writer，供日志和程序输出共用
+var (
+    StdoutWriter = &SyncWriter{w: os.Stdout}
+    StderrWriter = &SyncWriter{w: os.Stderr}
 )
 
 type (
@@ -40,7 +60,11 @@ type (
 )
 
 func init() {
-    log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, NoColor: false, TimeFormat: "2006-01-02T15:04:05Z"})
+    log.Logger = log.Output(zerolog.NewConsoleWriter(func(w *zerolog.ConsoleWriter) {
+        w.Out = StderrWriter
+        w.NoColor = false
+        w.TimeFormat = "2006-01-02T15:04:05Z"
+    }))
     viper.SetConfigType("toml")
     viper.SetConfigName("sohot")
     viper.AddConfigPath(".")

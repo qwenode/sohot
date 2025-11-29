@@ -8,11 +8,12 @@ import (
     "os/exec"
     "os/signal"
     "path/filepath"
-    "github.com/qwenode/sohot/e"
     "strings"
     "sync"
     "syscall"
     "time"
+
+    "github.com/qwenode/sohot/e"
 
     "github.com/fsnotify/fsnotify"
     "github.com/rs/zerolog/log"
@@ -87,8 +88,8 @@ func Running(input e.Run) {
         log.Err(err).Send()
         return
     }
-    go io.Copy(os.Stdout, stdoutPipe)
-    go io.Copy(os.Stderr, pipe)
+    go io.Copy(e.StdoutWriter, stdoutPipe)
+    go io.Copy(e.StderrWriter, pipe)
     // 捕获 cmd 的本地副本，避免竞态条件
     go func(runCmd *exec.Cmd) {
         <-stopRunning

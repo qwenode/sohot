@@ -1,0 +1,31 @@
+# 中文翻译
+
+[boot]
+config_load_failed = "配置文件加载失败"
+config_parse_failed = "配置文件解析失败"
+
+[main]
+profile_selected = "已通过命令行选择配置"
+profile_unknown = "未知的配置名称"
+initialized = "SoHot 已启动"
+
+[watch]
+shutdown_signal = "收到退出信号，正在清理资源"
+watcher_init_failed = "文件监控器初始化失败"
+watch_dir_failed = "无法监控目录"
+dir_traversal_error = "目录遍历错误"
+watcher_error = "文件监控器发生错误"
+executable_not_found = "可执行文件未找到，等待中"
+change_detected_restart = "检测到变更，正在重启"
+source_change_detected = "检测到源码变更，准备构建"
+build_failed = "构建失败"
+build_started = "开始构建"
+build_executing = "执行命令: go build"
+build_succeeded = "构建成功"
+executable_update_failed = "可执行文件更新失败"
+stdout_capture_failed = "标准输出捕获失败"
+stderr_capture_failed = "标准错误捕获失败"
+process_launch_failed = "进程启动失败"
+process_started = "进程已启动"
+process_terminating = "正在终止进程"
+temp_file_removed = "临时文件已清理"

@@ -1,6 +1,8 @@
 
 [log]
 level = -1
+# Language: en (English), zh (Chinese)
+lang = "en"
 
 # 监控配置
 [watch]

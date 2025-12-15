@@ -1,7 +1,6 @@
 package watch
 
 import (
-    "context"
     "io"
     "io/fs"
     "os"
@@ -13,427 +12,365 @@ import (
     "syscall"
     "time"
 
-    "github.com/qwenode/sohot/e"
+    "github.com/qwenode/sohot/boot"
+    "github.com/qwenode/sohot/i18n"
+    "github.com/qwenode/sohot/types"
 
     "github.com/fsnotify/fsnotify"
     "github.com/rs/zerolog/log"
 )
 
-var (
-    change         = make(chan bool, 1000)
-    stopRunning    = make(chan bool, 10)
-    isFirstRun     = true
-    isFirstRunLock sync.Mutex
-)
+// Reloader manages the hot-reload lifecycle
+type Reloader struct {
+    config     types.Run
+    change     chan struct{}
+    stop       chan struct{}
+    mu         sync.Mutex
+    process    *exec.Cmd
+    isFirstRun bool
+}
 
-// Function to clean up temporary files
-func cleanupTempFiles() {
-    // Clean temporary files in current directory
-    matches, err := filepath.Glob("*.delete_me_*")
-    if err != nil {
-        log.Warn().Err(err).Msg("Failed to search temporary files")
-        return
-    }
-
-    for _, tempFile := range matches {
-        if err := os.Remove(tempFile); err == nil {
-            log.Info().Str("file", tempFile).Msg("Cleaned temporary file successfully")
-        } else {
-            log.Warn().Str("file", tempFile).Err(err).Msg("Failed to clean temporary file")
-        }
+// New creates a new Reloader instance
+func New(config types.Run) *Reloader {
+    return &Reloader{
+        config:     config,
+        change:     make(chan struct{}, 100),
+        stop:       make(chan struct{}),
+        isFirstRun: true,
     }
 }
 
-// Function to force delete files
-func forceDeleteFile(filePath string) error {
-    dir := filepath.Dir(filePath)
-    matches, _ := filepath.Glob(filepath.Join(dir, "*.delete_me_*"))
-    for _, tempFile := range matches {
-        os.Remove(tempFile)
-    }
-    tempName := filePath + ".delete_me_" + time.Now().Format("20060102150405")
-    if err := os.Rename(filePath, tempName); err == nil {
-        return nil
-    }
-
-    return os.Remove(filePath) // Finally return the original error
-}
-
-func consume(ch chan bool) {
-    for {
-        select {
-        case <-ch:
-        default:
-            return
-        }
-    }
-}
-
-func Running(input e.Run) {
-    consume(stopRunning)
-    cmd := exec.Command(e.V.Build.Name, input.Command...)
-    log.Info().Strs("Run", input.Command).Msg("Run arguments")
-    pipe, err := cmd.StderrPipe()
-    if err != nil {
-        log.Err(err).Send()
-        return
-    }
-    stdoutPipe, err := cmd.StdoutPipe()
-    if err != nil {
-        log.Err(err).Send()
-        return
-    }
-    err = cmd.Start()
-    if err != nil {
-        log.Err(err).Send()
-        return
-    }
-    go io.Copy(e.StdoutWriter, stdoutPipe)
-    go io.Copy(e.StderrWriter, pipe)
-    // 捕获 cmd 的本地副本，避免竞态条件
-    go func(runCmd *exec.Cmd) {
-        <-stopRunning
-        if runCmd != nil && runCmd.Process != nil {
-            log.Info().Msg("Stopping execution")
-            _ = runCmd.Process.Kill()
-            runCmd.Wait()
-            runCmd.Process.Release()
-        }
-    }(cmd)
-    log.Info().Msg("Program started")
-}
-func Building(input e.Run) {
-    if input.Only {
-        for {
-            select {
-            case <-change:
-                log.Info().Msg("Restart signal detected")
-                consume(change)
-                time.Sleep(time.Second * 1)
-
-                // Check if executable file exists
-                if _, err := os.Stat(e.V.Build.Name); os.IsNotExist(err) {
-                    log.Warn().Str("file", e.V.Build.Name).Msg("Executable file not found, delaying restart to wait for compilation")
-                    continue // Skip this restart, continue waiting
-                }
-
-                log.Info().Str("file", e.V.Build.Name).Msg("Executable file exists, performing restart")
-                isFirstRunLock.Lock()
-                first := isFirstRun
-                if isFirstRun {
-                    isFirstRun = false
-                }
-                isFirstRunLock.Unlock()
-                if !first {
-                    stopRunning <- true
-                    time.Sleep(time.Millisecond * 100) // Give old process some time to completely exit
-                }
-                Running(input)
-            default:
-                time.Sleep(time.Second)
-            }
-        }
-        return
-    }
-    commands := []string{
-        "build",
-    }
-    commands = append(commands, e.V.Build.Command...)
-    commands = append(commands, "-o", e.V.Build.Name, e.V.Build.Package)
-    var cmd *exec.Cmd
-
-    // Timer for delayed compilation
-    var delayTimer *time.Timer
-    var countdownCancel context.CancelFunc
-    var countdownMutex sync.Mutex
-
-    // Function to print countdown
-    printCountdown := func(remainingSeconds int) {
-        if remainingSeconds < 0 {
-            remainingSeconds = 0
-        }
-        log.Info().Int("seconds_remaining", remainingSeconds).Msg("Compilation countdown")
-    }
-
-    // Function to stop countdown
-    stopCountdown := func() {
-        countdownMutex.Lock()
-        if countdownCancel != nil {
-            countdownCancel()
-            countdownCancel = nil
-        }
-        countdownMutex.Unlock()
-    }
-
-    // Function to start countdown
-    startCountdown := func(delayMs int) {
-        // First stop previous countdown
-        stopCountdown()
-
-        // Calculate total seconds
-        totalSeconds := delayMs / 1000
-        if delayMs%1000 > 0 {
-            totalSeconds++
-        }
-
-        // Show countdown immediately for the first time
-        printCountdown(totalSeconds)
-
-        // If delay time is too short, don't start ticker
-        if totalSeconds <= 1 {
-            return
-        }
-
-        // Create new context for canceling countdown
-        countdownMutex.Lock()
-        ctx, cancel := context.WithCancel(context.Background())
-        countdownCancel = cancel
-        countdownMutex.Unlock()
-
-        // Handle countdown in goroutine
-        go func() {
-            defer func() {
-                if r := recover(); r != nil {
-                    log.Error().Interface("panic", r).Msg("Countdown goroutine panic occurred")
-                }
-            }()
-
-            ticker := time.NewTicker(time.Second)
-            defer ticker.Stop()
-
-            secondsLeft := totalSeconds - 1
-
-            for {
-                select {
-                case <-ticker.C:
-                    if secondsLeft <= 0 {
-                        return
-                    }
-                    printCountdown(secondsLeft)
-                    secondsLeft--
-                case <-ctx.Done():
-                    return
-                }
-            }
-        }()
-    }
-
-    for {
-        select {
-        case <-change:
-            // Received file change notification
-            log.Info().Msg("File change detected...")
-
-            // If there's already a delay timer running, stop it and recalculate delay
-            if delayTimer != nil {
-                delayTimer.Stop()
-                log.Info().Msg("Resetting delay timer")
-            }
-
-            // Stop current countdown
-            stopCountdown()
-
-            // Set new delay timer
-            delayTimer = time.AfterFunc(time.Duration(e.V.Build.Delay)*time.Millisecond, func() {
-                // Execute compilation after delay expires
-                log.Info().Msg("Delay timer expired, starting compilation")
-                stopCountdown()
-
-                // If there's a running compilation process, terminate it first
-                if cmd != nil && cmd.Process != nil {
-                    log.Info().Msg("Terminating current compilation")
-                    cmd.Process.Kill()
-                    cmd.Process.Release()
-                }
-
-                // Generate temporary executable filename to avoid affecting running program
-                tempExecName := e.V.Build.Name + ".tmp_" + time.Now().Format("20060102150405")
-
-                // Clean up previously existing temporary files
-                matches, _ := filepath.Glob(e.V.Build.Name + ".tmp_*")
-                for _, tempFile := range matches {
-                    os.Remove(tempFile)
-                }
-
-                // Modify compilation command to compile to temporary file first
-                tempCommands := make([]string, len(commands))
-                copy(tempCommands, commands)
-                // Find the -o parameter position and replace with temporary filename
-                for i, arg := range tempCommands {
-                    if arg == "-o" && i+1 < len(tempCommands) {
-                        tempCommands[i+1] = tempExecName
-                        break
-                    }
-                }
-
-                // Start new compilation
-                log.Info().Strs("build_command", append([]string{"go"}, tempCommands...)).Msg("Preparing to execute build command")
-                cmd = exec.Command("go", tempCommands...)
-                cmd.Stdout = e.StdoutWriter
-                cmd.Stderr = e.StderrWriter
-                err := cmd.Start()
-                if err != nil {
-                    log.Err(err).Msg("Failed to start compilation")
-                    cmd = nil
-                    return
-                }
-
-                log.Info().Msg("Starting compilation")
-
-                // Wait for compilation to complete in new goroutine
-                // 捕获当前 cmd 的本地副本，避免竞态条件
-                currentCmd := cmd
-                go func(buildCmd *exec.Cmd, tempFile string) {
-                    defer func() {
-                        if r := recover(); r != nil {
-                            log.Error().Interface("panic", r).Msg("Compilation wait goroutine panic occurred")
-                        }
-                    }()
-
-                    if buildCmd == nil {
-                        log.Warn().Msg("Build command is nil, skipping wait")
-                        return
-                    }
-
-                    err := buildCmd.Wait()
-                    if err != nil {
-                        log.Err(err).Msg("Compilation error")
-                        return
-                    }
-
-                    log.Info().Msg("Compilation completed")
-
-                    // Check if temporary executable file exists
-                    if _, err := os.Stat(tempFile); os.IsNotExist(err) {
-                        log.Warn().Str("file", tempFile).Msg("Temporary executable file not found, compilation may have failed")
-                        return
-                    }
-
-                    log.Info().Str("temp_file", tempFile).Msg("Compilation successful, preparing to replace executable file")
-
-                    // If not first run, stop old program first
-                    isFirstRunLock.Lock()
-                    first := isFirstRun
-                    isFirstRunLock.Unlock()
-                    if !first {
-                        log.Info().Msg("Stopping old program")
-                        stopRunning <- true
-                        time.Sleep(time.Millisecond * 200) // Give old process more time to completely exit
-                    }
-
-                    // Delete old executable file and rename temporary file to official file
-                    if _, err := os.Stat(e.V.Build.Name); !os.IsNotExist(err) {
-                        if err := forceDeleteFile(e.V.Build.Name); err != nil {
-                            log.Warn().Err(err).Str("file", e.V.Build.Name).Msg("Failed to delete old executable file")
-                        }
-                    }
-
-                    // Rename temporary file to official file
-                    if err := os.Rename(tempFile, e.V.Build.Name); err != nil {
-                        log.Err(err).Str("temp_file", tempFile).Str("target_file", e.V.Build.Name).Msg("Failed to rename file")
-                        // Clean up temporary file
-                        os.Remove(tempFile)
-                        return
-                    }
-
-                    log.Info().Str("file", e.V.Build.Name).Msg("Executable file updated successfully, starting new program")
-
-                    isFirstRunLock.Lock()
-                    if isFirstRun {
-                        isFirstRun = false
-                    }
-                    isFirstRunLock.Unlock()
-
-                    Running(input)
-                }(currentCmd, tempExecName)
-            })
-
-            // Start countdown display
-            startCountdown(e.V.Build.Delay)
-
-            // Clear all pending change notifications
-            consume(change)
-
-        default:
-            time.Sleep(time.Second)
-        }
-    }
-}
-func Watching(input e.Run) {
-    // Clean temporary files on startup
+// Start begins the hot-reload process
+func (r *Reloader) Start() {
     cleanupTempFiles()
+    r.setupSignalHandler()
+    r.startWatcher()
 
-    // Set up signal handling to clean temporary files on program exit
+    // Trigger initial build/run
+    r.change <- struct{}{}
+
+    if r.config.Only {
+        r.runOnlyLoop()
+    } else {
+        r.buildLoop()
+    }
+}
+
+// setupSignalHandler sets up cleanup on exit
+func (r *Reloader) setupSignalHandler() {
     c := make(chan os.Signal, 1)
     signal.Notify(c, os.Interrupt, syscall.SIGTERM)
     go func() {
         <-c
-        log.Info().Msg("Received exit signal, cleaning temporary files...")
+        log.Info().Msg(i18n.T("watch.shutdown_signal"))
+        r.stopProcess()
         cleanupTempFiles()
         os.Exit(0)
     }()
+}
 
-    watchDirs := map[string]bool{}
-    if input.Only {
-        watchDirs[filepath.Dir(e.V.Build.Name)] = true
-    } else {
-        for _, s := range e.V.Watch.Include {
-            filepath.WalkDir(
-                s, func(path string, d fs.DirEntry, err error) error {
-                    if err != nil {
-                        log.Warn().Err(err).Str("path", path).Msg("Error walking directory")
-                        return nil
-                    }
-                    if d == nil || !d.IsDir() {
-                        return nil
-                    }
-                    if isExclude(path) {
-                        return nil
-                    }
-                    watchDirs[path] = true
-                    return nil
-                },
-            )
-        }
-    }
+// startWatcher starts the file system watcher
+func (r *Reloader) startWatcher() {
+    dirs := r.collectWatchDirs()
+
     watcher, err := fsnotify.NewWatcher()
     if err != nil {
-        log.Fatal().Err(err).Send()
+        log.Fatal().Err(err).Msg(i18n.T("watch.watcher_init_failed"))
     }
-    // 注意：watcher 在程序生命周期内持续运行，由信号处理器负责退出
-    go func() {
-        for {
-            select {
-            case event := <-watcher.Events:
-                if !input.Only && isExclude(event.Name) {
-                    continue
-                }
-                stat, err := os.Stat(event.Name)
-                if err != nil {
-                    continue
-                }
-                if stat.IsDir() {
-                    continue
-                }
-                // log.Info().Str("event", event.Name).Send()
-                change <- true
-            case err2 := <-watcher.Errors:
-                log.Err(err2).Msg("Monitoring failed")
-            }
+
+    for dir := range dirs {
+        if err := watcher.Add(dir); err != nil {
+            log.Warn().Err(err).Str("directory", dir).Msg(i18n.T("watch.watch_dir_failed"))
         }
-    }()
-    for s := range watchDirs {
-        watcher.Add(s)
     }
-    // 20241218 Trigger one first by Node
-    change <- true
+
+    go r.watchEvents(watcher)
 }
-func isExclude(path string) bool {
-    path = strings.ReplaceAll(strings.ToLower(path), "\\", "/")
-    for _, s := range e.V.Watch.Exclude {
-        if strings.Contains(path, s) {
+
+// collectWatchDirs collects directories to watch
+func (r *Reloader) collectWatchDirs() map[string]bool {
+    dirs := make(map[string]bool)
+
+    if r.config.Only {
+        dirs[filepath.Dir(boot.V.Build.Name)] = true
+        return dirs
+    }
+
+    for _, include := range boot.V.Watch.Include {
+        filepath.WalkDir(include, func(path string, d fs.DirEntry, err error) error {
+            if err != nil {
+                log.Warn().Err(err).Str("path", path).Msg(i18n.T("watch.dir_traversal_error"))
+                return nil
+            }
+            if d != nil && d.IsDir() && !isExcluded(path) {
+                dirs[path] = true
+            }
+            return nil
+        })
+    }
+
+    return dirs
+}
+
+// watchEvents handles file system events
+func (r *Reloader) watchEvents(watcher *fsnotify.Watcher) {
+    for {
+        select {
+        case event := <-watcher.Events:
+            if r.shouldIgnoreEvent(event.Name) {
+                continue
+            }
+            r.notifyChange()
+        case err := <-watcher.Errors:
+            log.Error().Err(err).Msg(i18n.T("watch.watcher_error"))
+        }
+    }
+}
+
+// shouldIgnoreEvent checks if an event should be ignored
+func (r *Reloader) shouldIgnoreEvent(name string) bool {
+    if !r.config.Only && isExcluded(name) {
+        return true
+    }
+    stat, err := os.Stat(name)
+    if err != nil || stat.IsDir() {
+        return true
+    }
+    return false
+}
+
+// notifyChange sends a change notification (non-blocking)
+func (r *Reloader) notifyChange() {
+    select {
+    case r.change <- struct{}{}:
+    default:
+    }
+}
+
+// runOnlyLoop handles the "only" mode (restart without rebuild)
+func (r *Reloader) runOnlyLoop() {
+    for {
+        select {
+        case <-r.change:
+            r.drainChanges()
+            time.Sleep(time.Second)
+
+            if !fileExists(boot.V.Build.Name) {
+                log.Warn().Str("executable", boot.V.Build.Name).Msg(i18n.T("watch.executable_not_found"))
+                continue
+            }
+
+            log.Info().Msg(i18n.T("watch.change_detected_restart"))
+            r.restart()
+
+        case <-r.stop:
+            return
+        }
+    }
+}
+
+// buildLoop handles the build-and-run mode
+func (r *Reloader) buildLoop() {
+    var debounceTimer *time.Timer
+
+    for {
+        select {
+        case <-r.change:
+            log.Info().Msg(i18n.T("watch.source_change_detected"))
+
+            // Reset debounce timer
+            if debounceTimer != nil {
+                debounceTimer.Stop()
+            }
+
+            delay := time.Duration(boot.V.Build.Delay) * time.Millisecond
+            debounceTimer = time.AfterFunc(delay, func() {
+                r.drainChanges()
+                if err := r.build(); err != nil {
+                    log.Error().Err(err).Msg(i18n.T("watch.build_failed"))
+                    return
+                }
+                r.restart()
+            })
+
+        case <-r.stop:
+            if debounceTimer != nil {
+                debounceTimer.Stop()
+            }
+            return
+        }
+    }
+}
+
+// build compiles the application
+func (r *Reloader) build() error {
+    log.Info().Msg(i18n.T("watch.build_started"))
+
+    tempFile := boot.V.Build.Name + ".tmp"
+    cleanupTempBuildFiles()
+
+    args := []string{"build"}
+    args = append(args, boot.V.Build.Command...)
+    args = append(args, "-o", tempFile, boot.V.Build.Package)
+
+    log.Debug().Strs("args", args).Msg(i18n.T("watch.build_executing"))
+
+    cmd := exec.Command("go", args...)
+    cmd.Stdout = boot.StdoutWriter
+    cmd.Stderr = boot.StderrWriter
+
+    if err := cmd.Run(); err != nil {
+        os.Remove(tempFile)
+        return err
+    }
+
+    if !fileExists(tempFile) {
+        return nil
+    }
+
+    log.Info().Msg(i18n.T("watch.build_succeeded"))
+
+    // Stop old process before replacing executable
+    r.stopProcess()
+    time.Sleep(100 * time.Millisecond)
+
+    // Replace executable
+    if fileExists(boot.V.Build.Name) {
+        forceDeleteFile(boot.V.Build.Name)
+    }
+
+    if err := os.Rename(tempFile, boot.V.Build.Name); err != nil {
+        log.Error().Err(err).Str("target", boot.V.Build.Name).Msg(i18n.T("watch.executable_update_failed"))
+        os.Remove(tempFile)
+        return err
+    }
+
+    return nil
+}
+
+// restart stops the old process and starts a new one
+func (r *Reloader) restart() {
+    r.mu.Lock()
+    first := r.isFirstRun
+    r.isFirstRun = false
+    r.mu.Unlock()
+
+    if !first {
+        r.stopProcess()
+        time.Sleep(100 * time.Millisecond)
+    }
+
+    r.run()
+}
+
+// run starts the application process
+func (r *Reloader) run() {
+    cmd := exec.Command(boot.V.Build.Name, r.config.Command...)
+
+    stdout, err := cmd.StdoutPipe()
+    if err != nil {
+        log.Error().Err(err).Msg(i18n.T("watch.stdout_capture_failed"))
+        return
+    }
+
+    stderr, err := cmd.StderrPipe()
+    if err != nil {
+        log.Error().Err(err).Msg(i18n.T("watch.stderr_capture_failed"))
+        return
+    }
+
+    if err := cmd.Start(); err != nil {
+        log.Error().Err(err).Msg(i18n.T("watch.process_launch_failed"))
+        return
+    }
+
+    r.mu.Lock()
+    r.process = cmd
+    r.mu.Unlock()
+
+    go io.Copy(boot.StdoutWriter, stdout)
+    go io.Copy(boot.StderrWriter, stderr)
+
+    log.Info().Int("pid", cmd.Process.Pid).Msg(i18n.T("watch.process_started"))
+}
+
+// stopProcess terminates the running process
+func (r *Reloader) stopProcess() {
+    r.mu.Lock()
+    proc := r.process
+    r.process = nil
+    r.mu.Unlock()
+
+    if proc == nil || proc.Process == nil {
+        return
+    }
+
+    log.Info().Int("pid", proc.Process.Pid).Msg(i18n.T("watch.process_terminating"))
+    proc.Process.Kill()
+    proc.Wait()
+}
+
+// drainChanges clears pending change notifications
+func (r *Reloader) drainChanges() {
+    for {
+        select {
+        case <-r.change:
+        default:
+            return
+        }
+    }
+}
+
+// isExcluded checks if a path should be excluded from watching
+func isExcluded(path string) bool {
+    path = strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+    for _, exclude := range boot.V.Watch.Exclude {
+        if strings.Contains(path, exclude) {
             return true
         }
     }
     return false
 }
+
+// fileExists checks if a file exists
+func fileExists(path string) bool {
+    _, err := os.Stat(path)
+    return err == nil
+}
+
+// cleanupTempFiles removes temporary files from previous runs
+func cleanupTempFiles() {
+    patterns := []string{"*.delete_me_*", "*.tmp"}
+    for _, pattern := range patterns {
+        matches, _ := filepath.Glob(pattern)
+        for _, f := range matches {
+            if err := os.Remove(f); err == nil {
+                log.Debug().Str("file", f).Msg(i18n.T("watch.temp_file_removed"))
+            }
+        }
+    }
+}
+
+// cleanupTempBuildFiles removes temporary build files
+func cleanupTempBuildFiles() {
+    matches, _ := filepath.Glob(boot.V.Build.Name + ".tmp*")
+    for _, f := range matches {
+        os.Remove(f)
+    }
+}
+
+// forceDeleteFile attempts to delete a file, using rename strategy if needed
+func forceDeleteFile(path string) error {
+    if err := os.Remove(path); err == nil {
+        return nil
+    }
+
+    // Try rename strategy for locked files (Windows)
+    tempName := path + ".delete_me_" + time.Now().Format("20060102150405")
+    if err := os.Rename(path, tempName); err == nil {
+        return nil
+    }
+
+    return os.Remove(path)
+}
+

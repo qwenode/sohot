@@ -374,14 +374,3 @@ func forceDeleteFile(path string) error {
     return os.Remove(path)
 }
 
-// Legacy API for backward compatibility
-// Deprecated: Use New() and Start() instead
-
-func Watching(input types.Run) {
-    // No-op, handled by Reloader.Start()
-}
-
-func Building(input types.Run) {
-    r := New(input)
-    r.Start()
-}

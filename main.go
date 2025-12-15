@@ -31,7 +31,7 @@ func main() {
         }
 
         key = arg
-        log.Info().Str("profile", key).Msg("Using command line specified profile")
+        log.Info().Str("profile", key).Msg("Profile selected via command line")
     } else {
         // No arguments provided, show interactive selection interface
         items := make([]string, 0, len(boot.V.Run))
@@ -58,12 +58,11 @@ func main() {
     // Verify if the profile exists
     run, ok := boot.V.Run[key]
     if !ok {
-        log.Fatal().Str("profile", key).Msg("Profile not found")
+        log.Fatal().Str("profile", key).Msg("Unknown profile specified")
     }
 
-    // Show version information at startup
     buildInfo := version.GetBuildInfo()
-    log.Info().Str("version", buildInfo.Version).Str("commit", buildInfo.Commit).Msg("Starting SoHot")
+    log.Info().Str("version", buildInfo.Version).Str("commit", buildInfo.Commit).Msg("SoHot initialized")
 
     watch.New(run).Start()
 }

@@ -32,10 +32,10 @@ func init() {
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
 	if err != nil {
-		log.Fatal().Err(err).Msg("Configuration file error")
+		log.Fatal().Err(err).Msg("Failed to load configuration file")
 	}
 	if err := viper.Unmarshal(&V); err != nil {
-		log.Fatal().Err(err).Msg("Failed to parse configuration")
+		log.Fatal().Err(err).Msg("Configuration parsing failed")
 	}
 	for i, s := range V.Watch.Exclude {
 		V.Watch.Exclude[i] = strings.ToLower(s)

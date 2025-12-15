@@ -6,7 +6,7 @@ import (
     "sort"
     "strings"
 
-    "github.com/qwenode/sohot/e"
+    "github.com/qwenode/sohot/boot"
     "github.com/qwenode/sohot/version"
     "github.com/qwenode/sohot/watch"
 
@@ -34,8 +34,8 @@ func main() {
         log.Info().Str("profile", key).Msg("Using command line specified profile")
     } else {
         // No arguments provided, show interactive selection interface
-        items := make([]string, 0, len(e.V.Run))
-        for s, run := range e.V.Run {
+        items := make([]string, 0, len(boot.V.Run))
+        for s, run := range boot.V.Run {
             if run.Only {
                 s += "#Run only mode"
             }
@@ -56,7 +56,7 @@ func main() {
     }
 
     // Verify if the profile exists
-    run, ok := e.V.Run[key]
+    run, ok := boot.V.Run[key]
     if !ok {
         log.Fatal().Str("profile", key).Msg("Profile not found")
     }

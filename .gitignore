@@ -32,3 +32,6 @@ _testmain.go
 /.idea/modules.xml
 /.idea/sohot.iml
 /.idea/vcs.xml
+AGENTS.md
+CLAUDE.md
+.claude/

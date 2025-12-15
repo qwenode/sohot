@@ -1,6 +1,6 @@
 //go:build windows
 
-package e
+package boot
 
 import (
 	"os"

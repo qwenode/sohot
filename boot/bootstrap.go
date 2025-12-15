@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/qwenode/sohot/i18n"
 	"github.com/qwenode/sohot/types"
 
 	"github.com/rs/zerolog"
@@ -15,7 +16,6 @@ var (
 	V = types.Configure{}
 )
 
-// 全局同步 writer，供日志和程序输出共用
 var (
 	StdoutWriter = types.NewSyncWriter(os.Stdout)
 	StderrWriter = types.NewSyncWriter(os.Stderr)
@@ -37,6 +37,14 @@ func init() {
 	if err := viper.Unmarshal(&V); err != nil {
 		log.Fatal().Err(err).Msg("Configuration parsing failed")
 	}
+
+	// Initialize i18n with configured language (default: en)
+	lang := V.Log.Lang
+	if lang == "" {
+		lang = "en"
+	}
+	i18n.Init(lang)
+
 	for i, s := range V.Watch.Exclude {
 		V.Watch.Exclude[i] = strings.ToLower(s)
 	}

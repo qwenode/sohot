@@ -1,0 +1,31 @@
+# English translations
+
+[boot]
+config_load_failed = "Failed to load configuration file"
+config_parse_failed = "Configuration parsing failed"
+
+[main]
+profile_selected = "Profile selected via command line"
+profile_unknown = "Unknown profile specified"
+initialized = "SoHot initialized"
+
+[watch]
+shutdown_signal = "Shutdown signal received, performing cleanup"
+watcher_init_failed = "Failed to initialize file watcher"
+watch_dir_failed = "Unable to watch directory"
+dir_traversal_error = "Directory traversal error"
+watcher_error = "File watcher encountered an error"
+executable_not_found = "Executable not found, awaiting availability"
+change_detected_restart = "Change detected, initiating restart"
+source_change_detected = "Source change detected, scheduling build"
+build_failed = "Build process failed"
+build_started = "Build started"
+build_executing = "Executing: go build"
+build_succeeded = "Build succeeded"
+executable_update_failed = "Failed to update executable"
+stdout_capture_failed = "Failed to capture stdout"
+stderr_capture_failed = "Failed to capture stderr"
+process_launch_failed = "Process launch failed"
+process_started = "Process started"
+process_terminating = "Terminating process"
+temp_file_removed = "Temporary file removed"

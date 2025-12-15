@@ -26,6 +26,7 @@ type (
 	}
 
 	Log struct {
-		Level int `mapstructure:"level"`
+		Level int    `mapstructure:"level"`
+		Lang  string `mapstructure:"lang"`
 	}
 )

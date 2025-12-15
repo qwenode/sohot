@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/qwenode/sohot/boot"
+	"github.com/qwenode/sohot/i18n"
 	"github.com/qwenode/sohot/types"
 
 	"github.com/fsnotify/fsnotify"
@@ -61,7 +62,7 @@ func (r *Reloader) setupSignalHandler() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		log.Info().Msg("Shutdown signal received, performing cleanup")
+		log.Info().Msg(i18n.T("watch.shutdown_signal"))
 		r.stopProcess()
 		cleanupTempFiles()
 		os.Exit(0)
@@ -74,12 +75,12 @@ func (r *Reloader) startWatcher() {
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to initialize file watcher")
+		log.Fatal().Err(err).Msg(i18n.T("watch.watcher_init_failed"))
 	}
 
 	for dir := range dirs {
 		if err := watcher.Add(dir); err != nil {
-			log.Warn().Err(err).Str("directory", dir).Msg("Unable to watch directory")
+			log.Warn().Err(err).Str("directory", dir).Msg(i18n.T("watch.watch_dir_failed"))
 		}
 	}
 
@@ -98,7 +99,7 @@ func (r *Reloader) collectWatchDirs() map[string]bool {
 	for _, include := range boot.V.Watch.Include {
 		filepath.WalkDir(include, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
-				log.Warn().Err(err).Str("path", path).Msg("Directory traversal error")
+				log.Warn().Err(err).Str("path", path).Msg(i18n.T("watch.dir_traversal_error"))
 				return nil
 			}
 			if d != nil && d.IsDir() && !isExcluded(path) {
@@ -121,7 +122,7 @@ func (r *Reloader) watchEvents(watcher *fsnotify.Watcher) {
 			}
 			r.notifyChange()
 		case err := <-watcher.Errors:
-			log.Error().Err(err).Msg("File watcher encountered an error")
+			log.Error().Err(err).Msg(i18n.T("watch.watcher_error"))
 		}
 	}
 }
@@ -155,11 +156,11 @@ func (r *Reloader) runOnlyLoop() {
 			time.Sleep(time.Second)
 
 			if !fileExists(boot.V.Build.Name) {
-				log.Warn().Str("executable", boot.V.Build.Name).Msg("Executable not found, awaiting availability")
+				log.Warn().Str("executable", boot.V.Build.Name).Msg(i18n.T("watch.executable_not_found"))
 				continue
 			}
 
-			log.Info().Msg("Change detected, initiating restart")
+			log.Info().Msg(i18n.T("watch.change_detected_restart"))
 			r.restart()
 
 		case <-r.stop:
@@ -175,7 +176,7 @@ func (r *Reloader) buildLoop() {
 	for {
 		select {
 		case <-r.change:
-			log.Info().Msg("Source change detected, scheduling build")
+			log.Info().Msg(i18n.T("watch.source_change_detected"))
 
 			// Reset debounce timer
 			if debounceTimer != nil {
@@ -186,7 +187,7 @@ func (r *Reloader) buildLoop() {
 			debounceTimer = time.AfterFunc(delay, func() {
 				r.drainChanges()
 				if err := r.build(); err != nil {
-					log.Error().Err(err).Msg("Build process failed")
+					log.Error().Err(err).Msg(i18n.T("watch.build_failed"))
 					return
 				}
 				r.restart()
@@ -203,7 +204,7 @@ func (r *Reloader) buildLoop() {
 
 // build compiles the application
 func (r *Reloader) build() error {
-	log.Info().Msg("Build started")
+	log.Info().Msg(i18n.T("watch.build_started"))
 
 	tempFile := boot.V.Build.Name + ".tmp"
 	cleanupTempBuildFiles()
@@ -212,7 +213,7 @@ func (r *Reloader) build() error {
 	args = append(args, boot.V.Build.Command...)
 	args = append(args, "-o", tempFile, boot.V.Build.Package)
 
-	log.Debug().Strs("args", args).Msg("Executing: go build")
+	log.Debug().Strs("args", args).Msg(i18n.T("watch.build_executing"))
 
 	cmd := exec.Command("go", args...)
 	cmd.Stdout = boot.StdoutWriter
@@ -227,7 +228,7 @@ func (r *Reloader) build() error {
 		return nil
 	}
 
-	log.Info().Msg("Build succeeded")
+	log.Info().Msg(i18n.T("watch.build_succeeded"))
 
 	// Stop old process before replacing executable
 	r.stopProcess()
@@ -239,7 +240,7 @@ func (r *Reloader) build() error {
 	}
 
 	if err := os.Rename(tempFile, boot.V.Build.Name); err != nil {
-		log.Error().Err(err).Str("target", boot.V.Build.Name).Msg("Failed to update executable")
+		log.Error().Err(err).Str("target", boot.V.Build.Name).Msg(i18n.T("watch.executable_update_failed"))
 		os.Remove(tempFile)
 		return err
 	}
@@ -268,18 +269,18 @@ func (r *Reloader) run() {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to capture stdout")
+		log.Error().Err(err).Msg(i18n.T("watch.stdout_capture_failed"))
 		return
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to capture stderr")
+		log.Error().Err(err).Msg(i18n.T("watch.stderr_capture_failed"))
 		return
 	}
 
 	if err := cmd.Start(); err != nil {
-		log.Error().Err(err).Msg("Process launch failed")
+		log.Error().Err(err).Msg(i18n.T("watch.process_launch_failed"))
 		return
 	}
 
@@ -290,7 +291,7 @@ func (r *Reloader) run() {
 	go io.Copy(boot.StdoutWriter, stdout)
 	go io.Copy(boot.StderrWriter, stderr)
 
-	log.Info().Int("pid", cmd.Process.Pid).Msg("Process started")
+	log.Info().Int("pid", cmd.Process.Pid).Msg(i18n.T("watch.process_started"))
 }
 
 // stopProcess terminates the running process
@@ -304,7 +305,7 @@ func (r *Reloader) stopProcess() {
 		return
 	}
 
-	log.Info().Int("pid", proc.Process.Pid).Msg("Terminating process")
+	log.Info().Int("pid", proc.Process.Pid).Msg(i18n.T("watch.process_terminating"))
 	proc.Process.Kill()
 	proc.Wait()
 }
@@ -344,7 +345,7 @@ func cleanupTempFiles() {
 		matches, _ := filepath.Glob(pattern)
 		for _, f := range matches {
 			if err := os.Remove(f); err == nil {
-				log.Debug().Str("file", f).Msg("Temporary file removed")
+				log.Debug().Str("file", f).Msg(i18n.T("watch.temp_file_removed"))
 			}
 		}
 	}

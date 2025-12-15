@@ -65,8 +65,7 @@ func main() {
     buildInfo := version.GetBuildInfo()
     log.Info().Str("version", buildInfo.Version).Str("commit", buildInfo.Commit).Msg("Starting SoHot")
 
-    watch.Watching(run)
-    watch.Building(run)
+    watch.New(run).Start()
 }
 func extractKey(result string) string {
     if idx := strings.Index(result, "#"); idx != -1 {

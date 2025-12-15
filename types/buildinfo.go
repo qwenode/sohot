@@ -4,24 +4,24 @@ import "fmt"
 
 // BuildInfo contains all build-time information.
 type BuildInfo struct {
-	Version   string `json:"version"`
-	Commit    string `json:"commit"`
-	Date      string `json:"date"`
-	BuiltBy   string `json:"builtBy"`
-	GoVersion string `json:"goVersion"`
+    Version   string `json:"version"`
+    Commit    string `json:"commit"`
+    Date      string `json:"date"`
+    BuiltBy   string `json:"builtBy"`
+    GoVersion string `json:"goVersion"`
 }
 
 // String returns a formatted string with all build information.
 func (bi BuildInfo) String() string {
-	return fmt.Sprintf("SoHot %s\nCommit: %s\nBuilt: %s\nBuilt by: %s\nGo version: %s",
-		bi.Version, bi.Commit, bi.Date, bi.BuiltBy, bi.GoVersion)
+    return fmt.Sprintf("SoHot %s\nCommit: %s\nBuilt: %s\nBuilt by: %s\nGo version: %s",
+        bi.Version, bi.Commit, bi.Date, bi.BuiltBy, bi.GoVersion)
 }
 
 // Short returns a short version string.
 func (bi BuildInfo) Short() string {
-	commit := bi.Commit
-	if len(commit) > 8 {
-		commit = commit[:8]
-	}
-	return fmt.Sprintf("SoHot %s (%s)", bi.Version, commit)
+    commit := bi.Commit
+    if len(commit) > 8 {
+        commit = commit[:8]
+    }
+    return fmt.Sprintf("SoHot %s (%s)", bi.Version, commit)
 }

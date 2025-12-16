@@ -172,26 +172,39 @@ func (r *Reloader) runOnlyLoop() {
 // buildLoop handles the build-and-run mode
 func (r *Reloader) buildLoop() {
     var debounceTimer *time.Timer
+    var debounceC <-chan time.Time
 
     for {
         select {
         case <-r.change:
-            log.Info().Msg(i18n.T("watch.source_change_detected"))
-
-            // Reset debounce timer
-            if debounceTimer != nil {
-                debounceTimer.Stop()
+            delay := time.Duration(boot.V.Build.Delay) * time.Millisecond
+            if debounceTimer == nil {
+                log.Info().Dur("delay", delay).Msg(i18n.T("watch.source_change_detected"))
+                debounceTimer = time.NewTimer(delay)
+                debounceC = debounceTimer.C
+                continue
             }
 
-            delay := time.Duration(boot.V.Build.Delay) * time.Millisecond
-            debounceTimer = time.AfterFunc(delay, func() {
-                r.drainChanges()
-                if err := r.build(); err != nil {
-                    log.Error().Err(err).Msg(i18n.T("watch.build_failed"))
-                    return
+            // Reset debounce timer
+            if !debounceTimer.Stop() {
+                select {
+                case <-debounceTimer.C:
+                default:
                 }
-                r.restart()
-            })
+            }
+            debounceTimer.Reset(delay)
+
+        case <-debounceC:
+            r.drainChanges()
+            if err := r.build(); err != nil {
+                log.Error().Err(err).Msg(i18n.T("watch.build_failed"))
+                debounceTimer = nil
+                debounceC = nil
+                continue
+            }
+            r.restart()
+            debounceTimer = nil
+            debounceC = nil
 
         case <-r.stop:
             if debounceTimer != nil {
@@ -373,4 +386,3 @@ func forceDeleteFile(path string) error {
 
     return os.Remove(path)
 }
-

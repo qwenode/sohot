@@ -362,6 +362,20 @@ func cleanupTempFiles() {
             }
         }
     }
+
+    // Also clean up temp files in the build output directory
+    if boot.V.Build.Name != "" {
+        buildDir := filepath.Dir(boot.V.Build.Name)
+        buildBase := filepath.Base(boot.V.Build.Name)
+        // Match patterns like: app.exe.delete_me_* in the build directory
+        buildPattern := filepath.Join(buildDir, buildBase+".delete_me_*")
+        matches, _ := filepath.Glob(buildPattern)
+        for _, f := range matches {
+            if err := os.Remove(f); err == nil {
+                log.Debug().Str("file", f).Msg(i18n.T("watch.temp_file_removed"))
+            }
+        }
+    }
 }
 
 // cleanupTempBuildFiles removes temporary build files

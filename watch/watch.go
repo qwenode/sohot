@@ -271,6 +271,8 @@ func (r *Reloader) restart() {
     if !first {
         r.stopProcess()
         time.Sleep(100 * time.Millisecond)
+        // Clean up temp files after stopping the old process
+        cleanupTempFiles()
     }
 
     r.run()

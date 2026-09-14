@@ -1,13 +1,13 @@
 module github.com/qwenode/sohot
 
-go 1.25.4
+go 1.26.0
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/manifoldco/promptui v0.9.0
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/viper v1.21.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 )
 
 require (

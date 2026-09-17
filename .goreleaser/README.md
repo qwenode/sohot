@@ -1,31 +1,6 @@
 # GoReleaser Configuration
 
-This directory contains configuration files for the automated release system.
-
-## Files
-
-### `release-notes.tmpl`
-Custom template for generating GitHub release notes. This template provides:
-
-- **Structured release information** with version, commit, and build details
-- **Download table** with direct links to all platform binaries
-- **Verification instructions** for checksum validation
-- **Quick start guide** for installation and usage
-- **Changelog integration** with categorized changes
-- **Support links** to documentation and issue tracking
-
-### Template Variables
-
-The template uses GoReleaser's built-in template variables:
-
-- `{{ .Tag }}` - Git tag (e.g., "v1.0.0")
-- `{{ .Date }}` - Build date
-- `{{ .ShortCommit }}` - Short commit hash
-- `{{ .ProjectName }}` - Project name from configuration
-- `{{ .Changes }}` - List of changes from changelog
-- `{{ .Env.GITHUB_REPOSITORY_OWNER }}` - Repository owner from environment
-- `{{ .Env.GITHUB_REPOSITORY_NAME }}` - Repository name from environment
-- `{{ .PreviousTag }}` - Previous git tag for changelog links
+This directory documents the automated release configuration in `.goreleaser.yaml`.
 
 ## Checksum Configuration
 
@@ -54,6 +29,5 @@ Required environment variables for release metadata:
 
 - `GITHUB_REPOSITORY_OWNER` - Repository owner name
 - `GITHUB_REPOSITORY_NAME` - Repository name
-- `GO_VERSION` - Go version used for building (optional, defaults to "1.21+")
 
 These are automatically provided by the GitHub Actions workflow.

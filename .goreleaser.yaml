@@ -44,7 +44,7 @@ archives:
       - README.md
       - README_CN.md
       - LICENSE
-      - sohot.toml
+      - sohot.example.toml
     format_overrides:
       - goos: windows
         formats: [ 'zip' ]

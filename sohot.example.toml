@@ -1,0 +1,33 @@
+# SoHot example configuration.
+# Copy this file to sohot.toml in your project root and adjust it.
+
+[log]
+# Log level: -1 trace, 0 debug, 1 info, 2 warn, 3 error
+level = 1
+# Language: en or zh
+lang = "en"
+
+[watch]
+# Directories to watch recursively
+include = ["."]
+# Path fragments to exclude (.git, .idea and *.exe are always excluded)
+exclude = ["tmp/", "vendor/"]
+
+[build]
+# Debounce delay before building, in milliseconds
+delay = 1000
+# Output executable path (".exe" is appended automatically on Windows)
+name = "./tmp/app"
+# Package to build
+package = "."
+# Extra arguments passed to go build, e.g. ["-race"]
+command = []
+
+# Build and restart on every change: sohot dev
+[run.dev]
+command = ["--port", "8080"]
+
+# Only restart when the executable changes, without building: sohot prod
+[run.prod]
+only = true
+command = ["--env", "production"]

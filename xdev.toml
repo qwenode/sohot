@@ -1,0 +1,6 @@
+[changelog]
+output_dir = "assets/changelog"
+
+[dingtalk]
+# 为空表示跳过钉钉通知
+token = ""

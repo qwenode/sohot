@@ -18,23 +18,23 @@ import (
 
 //go:generate go install .
 func main() {
-	var key string
-
-	// Check if command line arguments are provided
 	if len(os.Args) > 1 {
 		arg := os.Args[1]
-
-		// Handle version commands
 		if arg == "--version" || arg == "-v" || arg == "version" {
 			buildInfo := version.GetBuildInfo()
 			fmt.Println(buildInfo.String())
 			return
 		}
+	}
 
-		key = arg
+	boot.Load()
+
+	var key string
+
+	if len(os.Args) > 1 {
+		key = strings.ToLower(os.Args[1])
 		log.Info().Str("profile", key).Msg(i18n.T("main.profile_selected"))
 	} else {
-		// No arguments provided, show interactive selection interface
 		items := make([]string, 0, len(boot.V.Run))
 		for s, run := range boot.V.Run {
 			if run.Only {
@@ -56,13 +56,11 @@ func main() {
 		key = extractKey(result)
 	}
 
-	// Verify if the profile exists
 	run, ok := boot.V.Run[key]
 	if !ok {
 		log.Fatal().Str("profile", key).Msg(i18n.T("main.profile_unknown"))
 	}
 
-	// 设置控制台窗口标题为: profile名称 - 项目文件夹名称 - SoHot
 	if cwd, err := os.Getwd(); err == nil {
 		projectName := cwd[strings.LastIndex(cwd, string(os.PathSeparator))+1:]
 		boot.SetConsoleTitle(key + " - " + projectName + " - SoHot")

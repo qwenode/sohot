@@ -233,14 +233,7 @@ func (r *Reloader) build() error {
 
 	log.Info().Msg(i18n.T("watch.build_succeeded"))
 
-	r.stopProcess()
-	time.Sleep(100 * time.Millisecond)
-
-	if fileExists(boot.V.Build.Name) {
-		forceDeleteFile(boot.V.Build.Name)
-	}
-
-	if err := os.Rename(tempFile, boot.V.Build.Name); err != nil {
+	if err := replaceExecutable(tempFile, boot.V.Build.Name); err != nil {
 		log.Error().Err(err).Str("target", boot.V.Build.Name).Msg(i18n.T("watch.executable_update_failed"))
 		os.Remove(tempFile)
 		return err
@@ -396,16 +389,28 @@ func cleanupTempBuildFiles() {
 	os.Remove(boot.V.Build.Name + ".tmp")
 }
 
-func forceDeleteFile(path string) error {
-	if err := os.Remove(path); err == nil {
-		return nil
+func replaceExecutable(tempFile, name string) error {
+	old := name + ".delete_me_" + time.Now().Format("20060102150405")
+	movedOld := false
+	var err error
+	for attempt := 0; attempt < 10; attempt++ {
+		if attempt > 0 {
+			// WHY: antivirus and indexing services on Windows briefly lock freshly written executables, which is why cmd/go retries renames for about 2s; a single attempt fails intermittently.
+			time.Sleep(200 * time.Millisecond)
+		}
+		if !movedOld && fileExists(name) {
+			// WHY: Windows refuses to overwrite or delete a running executable but allows renaming it; without moving it aside the old process would have to be stopped before the new file is in place.
+			movedOld = os.Rename(name, old) == nil
+		}
+		if err = os.Rename(tempFile, name); err == nil {
+			if movedOld {
+				os.Remove(old)
+			}
+			return nil
+		}
 	}
-
-	// WHY: Windows refuses to delete an executable still held by a just-killed process but allows renaming it; without the rename, replacing the executable fails.
-	tempName := path + ".delete_me_" + time.Now().Format("20060102150405")
-	if err := os.Rename(path, tempName); err == nil {
-		return nil
+	if movedOld {
+		os.Rename(old, name)
 	}
-
-	return os.Remove(path)
+	return err
 }

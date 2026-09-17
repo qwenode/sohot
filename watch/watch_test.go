@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -71,6 +72,49 @@ func TestIsBuildOutputAndTarget(t *testing.T) {
 		}
 		if got := isBuildTarget(tt.path); got != tt.wantTarget {
 			t.Errorf("isBuildTarget(%q) with build.name %q = %v, want %v", tt.path, tt.name, got, tt.wantTarget)
+		}
+	}
+}
+
+func TestReplaceExecutable(t *testing.T) {
+	tests := []struct {
+		desc    string
+		old     string
+		new     string
+		wantErr bool
+		want    string
+	}{
+		{"replaces existing executable", "old", "new", false, "new"},
+		{"creates missing executable", "", "new", false, "new"},
+		{"restores old executable when new one is missing", "old", "", true, "old"},
+	}
+	for _, tt := range tests {
+		dir := t.TempDir()
+		name := filepath.Join(dir, "app")
+		tempFile := name + ".tmp"
+		if tt.old != "" {
+			if err := os.WriteFile(name, []byte(tt.old), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if tt.new != "" {
+			if err := os.WriteFile(tempFile, []byte(tt.new), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		err := replaceExecutable(tempFile, name)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("%s: replaceExecutable() error = %v, wantErr %v", tt.desc, err, tt.wantErr)
+		}
+		got, err := os.ReadFile(name)
+		if err != nil {
+			t.Errorf("%s: read %s: %v", tt.desc, name, err)
+		} else if string(got) != tt.want {
+			t.Errorf("%s: %s contains %q, want %q", tt.desc, name, got, tt.want)
+		}
+		if leftovers, _ := filepath.Glob(name + ".delete_me_*"); len(leftovers) != 0 {
+			t.Errorf("%s: leftover files %v", tt.desc, leftovers)
 		}
 	}
 }

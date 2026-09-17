@@ -19,7 +19,7 @@ A Go-based file monitoring and hot-reload tool that automatically watches for fi
 
 ### Prerequisites
 
-- Go 1.23.1 or later
+- Go 1.27.1 or later
 - Git (for cloning the repository)
 
 ### Install from Source

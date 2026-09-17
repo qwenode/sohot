@@ -13,7 +13,7 @@
 - **仅运行模式**：监控并重启预构建的可执行文件，无需重复编译
 - **跨平台**：在 Windows、macOS 和 Linux 上运行，具有平台特定优化
 - **结构化日志**：使用 zerolog 提供可配置级别的全面日志记录
-- **进程管理**：通过信号处理实现优雅的进程终止和清理
+- **进程管理**：每次重启前终止正在运行的程序，程序自行退出时记录日志，退出时清理构建临时文件
 
 ## 安装
 
@@ -51,7 +51,7 @@ exclude = ["tmp/", "vendor/"]
 [build]
 delay = 1000
 name = "./tmp/app"
-package = "main.go"
+package = "."
 command = []
 
 [run.dev]
@@ -68,8 +68,11 @@ command = ["--env", "production"]
 # 交互模式 - 选择配置文件
 sohot
 
-# 直接模式 - 指定配置文件名称
+# 直接模式 - 指定配置文件名称（不区分大小写）
 sohot dev
+
+# 查看版本信息
+sohot --version
 ```
 
 3. **开始开发** - SoHot 将在文件变更时自动重建并重启您的应用程序。
@@ -82,24 +85,25 @@ SoHot 使用 TOML 配置文件 (`sohot.toml`)，包含以下部分：
 
 ```toml
 [log]
-level = -1  # 日志级别 (-1: trace, 0: debug, 1: info, 2: warn, 3: error, 4: fatal)
+level = -1    # 日志级别 (-1: trace, 0: debug, 1: info, 2: warn, 3: error, 4: fatal)
+lang = "zh"   # 日志语言：en 或 zh（默认 en）
 ```
 
 ### 监控配置
 
 ```toml
 [watch]
-include = ["."]           # 要监控的目录
-exclude = ["tmp/"]        # 要排除的目录（*.git, .idea, *.exe 自动排除）
+include = ["."]           # 递归监控的目录，运行中新建的子目录会自动加入（默认 ["."]）
+exclude = ["tmp/"]        # 要排除的路径片段；.git、.idea 目录、*.exe 文件和构建产物始终被忽略
 ```
 
 ### 构建配置
 
 ```toml
 [build]
-delay = 1000             # 编译延迟（毫秒）
-name = "./tmp/test.exe"  # 输出可执行文件路径
-package = "main.go"      # 主包路径
+delay = 1000             # 编译延迟，毫秒（默认 500）
+name = "./tmp/app"       # 输出可执行文件路径，必填（Windows 下自动补 .exe）
+package = "."            # 要编译的包，例如 "." 或 "./cmd/server"（默认 "."）
 command = []             # 额外的构建参数
 ```
 
@@ -122,7 +126,9 @@ command = ["--test-mode"]
 #### 运行配置文件选项
 
 - **command**：传递给应用程序的命令行参数数组
-- **only**：仅运行模式的布尔标志（监控可执行文件而不是源文件）
+- **only**：仅运行模式的布尔标志（不编译，只在 `build.name` 指向的可执行文件变化时重启）
+
+至少需要定义一个运行配置。配置名称不区分大小写，`sohot Dev` 和 `sohot dev` 选中的是同一个配置。
 
 ## 使用示例
 
@@ -136,7 +142,7 @@ exclude = ["static/", "tmp/"]
 [build]
 delay = 500
 name = "./tmp/server"
-package = "cmd/server/main.go"
+package = "./cmd/server"
 
 [run.dev]
 command = ["--port", "8080", "--debug"]
@@ -206,10 +212,10 @@ go build -o sohot
 ### 常见问题
 
 **Q: 程序无法启动或配置文件读取失败**
-A: 检查 `sohot.toml` 文件格式是否正确，确保所有必需字段都已配置。
+A: 检查 `sohot.toml` 是否是合法的 TOML。`build.name` 和至少一个 `[run.<名称>]` 配置是必填项；`build.package` 默认为 `"."`，`watch.include` 默认为 `["."]`。
 
 **Q: 文件变更未触发重新编译**
-A: 验证 `watch.include` 和 `watch.exclude` 配置，确保目标文件在监控范围内。
+A: 检查 `watch.include` 和 `watch.exclude` 配置。排除条目按路径片段匹配，所以 `tmp/` 也会匹配 `mytmp/`；`.git`、`.idea` 目录、`*.exe` 文件和构建产物始终被忽略。
 
 **Q: Windows 下可执行文件删除失败**
 A: 这是正常现象，SoHot 会自动处理文件锁定问题并清理临时文件。

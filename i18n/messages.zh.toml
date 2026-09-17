@@ -3,11 +3,14 @@
 [boot]
 config_load_failed = "配置文件加载失败"
 config_parse_failed = "配置文件解析失败"
+build_name_required = "sohot.toml 缺少必填项 build.name"
+run_profiles_required = "sohot.toml 至少需要定义一个 [run.<名称>] 配置"
 
 [main]
 profile_selected = "已通过命令行选择配置"
 profile_unknown = "未知的配置名称"
 initialized = "SoHot 已启动"
+prompt_failed = "配置选择失败"
 
 [watch]
 shutdown_signal = "收到退出信号，正在清理资源"

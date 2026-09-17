@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -22,7 +23,6 @@ import (
 type Reloader struct {
 	config     types.Run
 	change     chan struct{}
-	stop       chan struct{}
 	mu         sync.Mutex
 	process    *exec.Cmd
 	done       chan struct{}
@@ -33,7 +33,6 @@ func New(config types.Run) *Reloader {
 	return &Reloader{
 		config:     config,
 		change:     make(chan struct{}, 100),
-		stop:       make(chan struct{}),
 		isFirstRun: true,
 	}
 }
@@ -155,23 +154,17 @@ func (r *Reloader) notifyChange() {
 }
 
 func (r *Reloader) runOnlyLoop() {
-	for {
-		select {
-		case <-r.change:
-			time.Sleep(time.Second)
-			r.drainChanges()
+	for range r.change {
+		time.Sleep(time.Second)
+		r.drainChanges()
 
-			if !fileExists(boot.V.Build.Name) {
-				log.Warn().Str("executable", boot.V.Build.Name).Msg(i18n.T("watch.executable_not_found"))
-				continue
-			}
-
-			log.Info().Msg(i18n.T("watch.change_detected_restart"))
-			r.restart()
-
-		case <-r.stop:
-			return
+		if !fileExists(boot.V.Build.Name) {
+			log.Warn().Str("executable", boot.V.Build.Name).Msg(i18n.T("watch.executable_not_found"))
+			continue
 		}
+
+		log.Info().Msg(i18n.T("watch.change_detected_restart"))
+		r.restart()
 	}
 }
 
@@ -209,12 +202,6 @@ func (r *Reloader) buildLoop() {
 			r.restart()
 			debounceTimer = nil
 			debounceC = nil
-
-		case <-r.stop:
-			if debounceTimer != nil {
-				debounceTimer.Stop()
-			}
-			return
 		}
 	}
 }
@@ -241,7 +228,7 @@ func (r *Reloader) build() error {
 	}
 
 	if !fileExists(tempFile) {
-		return nil
+		return fmt.Errorf("go build finished without creating %s; check that build.package is a main package", tempFile)
 	}
 
 	log.Info().Msg(i18n.T("watch.build_succeeded"))

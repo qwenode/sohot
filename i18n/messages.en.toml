@@ -3,11 +3,14 @@
 [boot]
 config_load_failed = "Failed to load configuration file"
 config_parse_failed = "Configuration parsing failed"
+build_name_required = "build.name is required in sohot.toml"
+run_profiles_required = "sohot.toml must define at least one [run.<name>] profile"
 
 [main]
 profile_selected = "Profile selected via command line"
 profile_unknown = "Unknown profile specified"
 initialized = "SoHot initialized"
+prompt_failed = "Profile selection failed"
 
 [watch]
 shutdown_signal = "Shutdown signal received, performing cleanup"

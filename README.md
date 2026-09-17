@@ -13,7 +13,7 @@ A Go-based file monitoring and hot-reload tool that automatically watches for fi
 - **Run-Only Mode**: Monitor and restart pre-built executables without recompilation
 - **Cross-Platform**: Works on Windows, macOS, and Linux with platform-specific optimizations
 - **Structured Logging**: Comprehensive logging with configurable levels using zerolog
-- **Process Management**: Graceful process termination and cleanup with signal handling
+- **Process Management**: Stops the running application before each restart, logs when it exits on its own, and cleans up temporary build files on exit
 
 ## Installation
 
@@ -51,7 +51,7 @@ exclude = ["tmp/", "vendor/"]
 [build]
 delay = 1000
 name = "./tmp/app"
-package = "main.go"
+package = "."
 command = []
 
 [run.dev]
@@ -68,8 +68,11 @@ command = ["--env", "production"]
 # Interactive mode - choose profile
 sohot
 
-# Direct mode - specify profile name
+# Direct mode - specify profile name (case-insensitive)
 sohot dev
+
+# Show version information
+sohot --version
 ```
 
 3. **Start developing** - SoHot will automatically rebuild and restart your application when files change.
@@ -82,24 +85,25 @@ SoHot uses a TOML configuration file (`sohot.toml`) with the following sections:
 
 ```toml
 [log]
-level = -1  # Log level (-1: trace, 0: debug, 1: info, 2: warn, 3: error, 4: fatal)
+level = -1    # Log level (-1: trace, 0: debug, 1: info, 2: warn, 3: error, 4: fatal)
+lang = "en"   # Log language: en or zh (default: en)
 ```
 
 ### Watch Configuration
 
 ```toml
 [watch]
-include = ["."]           # Directories to monitor
-exclude = ["tmp/"]        # Directories to exclude (*.git, .idea, *.exe automatically excluded)
+include = ["."]           # Directories to watch recursively; new subdirectories are picked up automatically (default: ["."])
+exclude = ["tmp/"]        # Path fragments to exclude; .git and .idea directories, *.exe files and the build output are always ignored
 ```
 
 ### Build Configuration
 
 ```toml
 [build]
-delay = 1000             # Compilation delay in milliseconds
-name = "./tmp/test.exe"  # Output executable path
-package = "main.go"      # Main package path
+delay = 1000             # Compilation delay in milliseconds (default: 500)
+name = "./tmp/app"       # Output executable path, required (".exe" is appended automatically on Windows)
+package = "."            # Package to build, e.g. "." or "./cmd/server" (default: ".")
 command = []             # Additional build arguments
 ```
 
@@ -123,7 +127,9 @@ command = ["--test-mode"]
 #### Run Profile Options
 
 - **command**: Array of command-line arguments to pass to your application
-- **only**: Boolean flag for run-only mode (monitors executable file instead of source files)
+- **only**: Boolean flag for run-only mode (skips compilation and restarts the application only when the executable at `build.name` changes)
+
+At least one run profile is required. Profile names are case-insensitive, so `sohot Dev` and `sohot dev` select the same profile.
 
 
 ## Usage Examples
@@ -138,7 +144,7 @@ exclude = ["static/", "tmp/"]
 [build]
 delay = 500
 name = "./tmp/server"
-package = "cmd/server/main.go"
+package = "./cmd/server"
 
 [run.dev]
 command = ["--port", "8080", "--debug"]
@@ -165,6 +171,67 @@ command = ["--config", "debug.yaml", "--pprof"]
 [run.production]
 only = true
 command = ["--env", "production", "--workers", "4"]
+```
+
+## Development
+
+### Contributing
+
+We welcome contributions! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/qwenode/sohot.git
+cd sohot
+
+# Install dependencies
+go mod download
+
+# Run tests
+go test ./...
+
+# Build the project
+go build -o sohot
+```
+
+### Code Style
+
+- Follow the official Go code style guidelines
+- Format code with `gofmt`
+- Add appropriate comments and documentation
+- Write unit tests for new features
+
+## Troubleshooting
+
+### Common Issues
+
+**Q: SoHot fails to start or cannot read the configuration file**
+A: Check that `sohot.toml` is valid TOML. `build.name` and at least one `[run.<name>]` profile are required; `build.package` defaults to `"."` and `watch.include` defaults to `["."]`.
+
+**Q: File changes do not trigger a rebuild**
+A: Check `watch.include` and `watch.exclude`. Exclude entries are matched as path fragments, so `tmp/` also matches `mytmp/`. `.git` and `.idea` directories, `*.exe` files and the build output are always ignored.
+
+**Q: Deleting the executable fails on Windows**
+A: This is expected. SoHot handles locked files automatically and cleans up the temporary files.
+
+**Q: Permission errors during compilation**
+A: Make sure the output directory is writable, or point `build.name` to a directory you can write to.
+
+### Debug Mode
+
+Enable verbose logging to diagnose issues:
+
+```toml
+[log]
+level = -1  # Enable trace-level logging
 ```
 
 ### Reporting Issues

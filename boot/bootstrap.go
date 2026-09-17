@@ -51,6 +51,19 @@ func Load() {
 	}
 	i18n.Init(lang)
 
+	if V.Build.Name == "" {
+		log.Fatal().Msg(i18n.T("boot.build_name_required"))
+	}
+	if len(V.Run) == 0 {
+		log.Fatal().Msg(i18n.T("boot.run_profiles_required"))
+	}
+	if V.Build.Package == "" {
+		V.Build.Package = "."
+	}
+	if len(V.Watch.Include) == 0 {
+		V.Watch.Include = []string{"."}
+	}
+
 	for i, s := range V.Watch.Exclude {
 		V.Watch.Exclude[i] = strings.ToLower(strings.ReplaceAll(s, "\\", "/"))
 	}
@@ -58,14 +71,12 @@ func Load() {
 		V.Build.Delay = 500
 	}
 
-	if V.Build.Name != "" {
-		name := V.Build.Name
-		if runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(name), ".exe") {
-			name += ".exe"
-		}
-		if abs, err := filepath.Abs(name); err == nil {
-			name = abs
-		}
-		V.Build.Name = name
+	name := V.Build.Name
+	if runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(name), ".exe") {
+		name += ".exe"
 	}
+	if abs, err := filepath.Abs(name); err == nil {
+		name = abs
+	}
+	V.Build.Name = name
 }

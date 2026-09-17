@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -48,17 +49,23 @@ func main() {
 			Items: items,
 		}
 		_, result, err := prompt.Run()
-
 		if err != nil {
-			fmt.Printf("Prompt failed %v\n", err)
-			return
+			if errors.Is(err, promptui.ErrInterrupt) {
+				os.Exit(130)
+			}
+			log.Fatal().Err(err).Msg(i18n.T("main.prompt_failed"))
 		}
 		key = extractKey(result)
 	}
 
 	run, ok := boot.V.Run[key]
 	if !ok {
-		log.Fatal().Str("profile", key).Msg(i18n.T("main.profile_unknown"))
+		names := make([]string, 0, len(boot.V.Run))
+		for name := range boot.V.Run {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		log.Fatal().Str("profile", key).Strs("available", names).Msg(i18n.T("main.profile_unknown"))
 	}
 
 	if cwd, err := os.Getwd(); err == nil {
